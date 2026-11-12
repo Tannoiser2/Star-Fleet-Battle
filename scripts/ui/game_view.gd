@@ -424,7 +424,7 @@ func _refresh_status() -> void:
 		if int(u["sr"][i]) > 0:
 			txt += "+%d" % int(u["sr"][i])
 		var f := float(u["sh"][i]) / maxf(1.0, float(u["sh_max"][i]))
-		var l := UI.mono(txt, 17, Color(0.6, 0.8, 1.0).lerp(UI.RED, 1.0 - f) if u["sh_on"] else UI.MUTED)
+		var l := UI.mono(txt, 17, (board.shield_color(f).lightened(0.3) if f <= 0.5 else Color(0.6, 0.8, 1.0)) if u["sh_on"] else UI.MUTED)
 		l.custom_minimum_size.x = 112
 		g.add_child(l)
 	status_box.add_child(g)
@@ -597,13 +597,14 @@ func _on_unit_clicked(uid: int) -> void:
 	if t.is_empty():
 		return
 	if req.get("type", "") == "fire" and eng.enemies(int(req["side"]), int(t["side"])):
-		_fire_assign(uid)
+		if _fire_targets().has(uid):
+			_open_tmenu(uid)
+		else:
+			_say("Nessuna arma pronta può colpire quel bersaglio.")
 		return
 	if t["kind"] == "ship":
 		_select(uid)
-		if req.get("type", "") == "fire":
-			_fire_panel()
-		else:
+		if req.get("type", "") != "fire":
 			_open_ssd(uid)
 
 
@@ -673,6 +674,8 @@ func _on_request(r: Dictionary) -> void:
 
 func _provide(r) -> void:
 	req = {}
+	_close_tmenu()
+	board.set_markers({})
 	act_panel.visible = false
 	board.set_ghosts([])
 	board.show_arc(null, "", 0)
@@ -1065,6 +1068,250 @@ func _focus_fight() -> void:
 	board.dist = clampf(a.distance_to(b) * 1.3 + 12.0, 18.0, 70.0)
 
 
+# ---------------------------------------------------------------- fuoco dalla mappa
+## In ogni impulso di fuoco i bersagli a tiro hanno una freccia; toccandola si apre accanto al
+## bersaglio un mini menu con le armi che possono colpirlo, con probabilità e danni attesi.
+
+var tmenu: PanelContainer
+var tmenu_tid := -1
+var fire_bar_lbl: Label
+var fire_btn: Button
+
+
+## Bersagli possibili del lato di turno: tid -> [[uid, indice arma], ...]
+func _fire_targets() -> Dictionary:
+	var out := {}
+	if req.get("type", "") != "fire":
+		return out
+	for u in eng.ships_of(int(req["side"])):
+		if not u["fc"] or u["cloak"] > 0 or u["cloak_t"] > 0:
+			continue
+		for i in u["weapons"].size():
+			if not eng.weapon_usable(u, i):
+				continue
+			for tid in eng.targets_for(u, i):
+				if not out.has(tid):
+					out[tid] = []
+				out[tid].append([u["uid"], i])
+	return out
+
+
+## Probabilità di colpire (0-1), danni attesi e descrizione breve di un colpo
+func _shot_info(u: Dictionary, i: int, tid: int) -> Array:
+	var t: Dictionary = eng.units[tid]
+	var w: Dictionary = u["weapons"][i]
+	var r := H.dist(u["pos"], t["pos"])
+	var er: int = eng.eff_range(u, t)
+	if D.is_phaser(w["t"]):
+		var tot := 0
+		var hits := 0
+		for dd in range(1, 7):
+			var x := D.phaser_damage(w["t"], dd, er)
+			tot += x
+			if x > 0:
+				hits += 1
+		return [hits / 6.0, tot / 6.0, ""]
+	if w["t"] == "PHOT":
+		var ov := int(w["ov"]) > 0
+		var c := D.col_index(D.PHOT_COLS, er if (not ov or er <= 8) else r)
+		var need: int = (D.PHOT_HIT_OV[c] if ov else D.PHOT_HIT[c]) if c >= 0 else 0
+		var dmg := 8 + 2 * int(w["ov"])
+		return [need / 6.0, need / 6.0 * dmg, "%d danni" % dmg]
+	if w["t"] == "DISR":
+		var ov2 := int(w["ov"]) > 0
+		var c2 := D.col_index(D.DISR_COLS, er if (not ov2 or er <= 8) else r)
+		if c2 < 0:
+			return [0.0, 0.0, ""]
+		var need2: int = D.DISR_HIT_OV[c2] if ov2 else D.DISR_HIT[c2]
+		var dmg2: int = D.DISR_DMG_OV[c2] if ov2 else D.DISR_DMG[c2]
+		return [need2 / 6.0, need2 / 6.0 * dmg2, "%d danni" % dmg2]
+	if D.is_plasma(w["t"]):
+		var st := D.plasma_strength(w["pt"], r)
+		return [1.0, float(st), "testata %d, cala con la strada" % st]
+	if w["t"] == "DRN":
+		return [1.0, float(D.DRONE_DMG), "drone da %d, arriva in %d impulsi" % [D.DRONE_DMG, int(ceil(r * 32.0 / D.DRONE_SPEED))]]
+	return [0.0, 0.0, ""]
+
+
+func _fire_panel() -> void:
+	_clear_act()
+	var s := int(req["side"])
+	var tg := _fire_targets()
+	var mk := {}
+	for tid in tg:
+		var t: Dictionary = eng.units[tid]
+		mk[tid] = Color(1.0, 0.3, 0.2) if t["kind"] == "ship" else Color(1.0, 0.75, 0.2)
+	board.set_markers(mk)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	act_box.add_child(hb)
+	var hd := UI.head("Impulso %d - fuoco%s" % [eng.imp, _who(s)], 24, UI.TAN)
+	hd.custom_minimum_size.x = 260
+	hb.add_child(hd)
+	fire_bar_lbl = UI.label("", 17, UI.TEXT)
+	fire_bar_lbl.custom_minimum_size.x = 380
+	fire_bar_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fire_bar_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hb.add_child(fire_bar_lbl)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	act_box.add_child(row)
+	fire_btn = UI.primary(UI.button("Fuoco!", 170, 52, 22))
+	fire_btn.pressed.connect(_fire_send)
+	row.add_child(fire_btn)
+	var bp := UI.button("Non sparare", 170, 52, 20, UI.LILAC)
+	bp.pressed.connect(func(): _provide({"shots": [], "launch": []}))
+	row.add_child(bp)
+	var bt := UI.button("Attendi 4 impulsi", 190, 52, 18, UI.LILAC)
+	bt.pressed.connect(func():
+		skip_fire_until[s] = eng.turn * 100 + eng.imp + 3
+		_provide({"shots": [], "launch": []}))
+	row.add_child(bt)
+	var bai := UI.button("Fuoco automatico", 190, 52, 18, UI.BLUE)
+	bai.pressed.connect(func(): _provide(helper_ai.fire_for(eng, s)))
+	row.add_child(bai)
+	var bl := UI.button("Elenco armi", 150, 52, 18, UI.SKY)
+	bl.pressed.connect(_fire_list)
+	row.add_child(bl)
+	for u in eng.ships_of(s):
+		if eng.can_launch_shuttle(u):
+			var uid: int = u["uid"]
+			var bs := UI.button(("Caccia" if int(u["fighters"]) > 0 else "Navetta") + " da " + str(D.ship(u["id"])["n"]).substr(0, 14), 0, 52, 17, UI.SKY)
+			bs.pressed.connect(func():
+				var shots := _collect_shots()
+				shots["launch"].append([uid, "shut", 0])
+				_provide(shots))
+			row.add_child(bs)
+			break
+	_fire_bar_update()
+	_show_act()
+
+
+func _fire_bar_update() -> void:
+	if not is_instance_valid(fire_bar_lbl):
+		return
+	var n := fire_sel.size()
+	var exp := 0.0
+	for key in fire_sel:
+		var p: PackedStringArray = key.split(":")
+		exp += float(_shot_info(eng.units[int(p[0])], int(p[1]), int(fire_sel[key]))[1])
+	if n == 0:
+		fire_bar_lbl.text = "Tocca una freccia rossa sopra un bersaglio per scegliere le armi."
+	else:
+		fire_bar_lbl.text = "%d armi pronte a sparare, circa %.0f danni attesi." % [n, exp]
+	if is_instance_valid(fire_btn):
+		fire_btn.text = ("FUOCO! (%d)" % n) if n > 0 else "FUOCO!"
+		fire_btn.disabled = n == 0
+
+
+func _close_tmenu() -> void:
+	if is_instance_valid(tmenu):
+		tmenu.queue_free()
+	tmenu = null
+	tmenu_tid = -1
+
+
+func _open_tmenu(tid: int) -> void:
+	_close_tmenu()
+	var tg := _fire_targets()
+	if not tg.has(tid):
+		return
+	tmenu_tid = tid
+	var t: Dictionary = eng.units[tid]
+	tmenu = UI.panel(UI.RED, 0.95)
+	tmenu.custom_minimum_size = Vector2(440, 0)
+	add_child(tmenu)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	tmenu.add_child(vb)
+	var nm: String = str(D.ship(t["id"])["n"]) if t["kind"] == "ship" else str(t["name"])
+	var title := UI.head(nm, 22, UI.PEACH)
+	title.custom_minimum_size.x = 380
+	title.clip_text = true
+	vb.add_child(title)
+	if t["kind"] == "ship":
+		var some: Array = tg[tid][0]
+		var shooter: Dictionary = eng.units[some[0]]
+		var shi: int = eng._shield_hit(t, shooter["pos"])
+		var f := float(t["sh"][shi]) / maxf(1.0, float(t["sh_max"][shi]))
+		vb.add_child(UI.label("Colpi sullo scudo #%d: %d su %d%s" % [shi + 1, t["sh"][shi], t["sh_max"][shi], " (debole!)" if f <= 0.2 else ""], 16, board.shield_color(f) if f <= 0.5 else UI.SKY))
+	var list: Array = tg[tid]
+	list.sort_custom(func(a, b): return _shot_info(eng.units[a[0]], a[1], tid)[1] > _shot_info(eng.units[b[0]], b[1], tid)[1])
+	var more := {}
+	for e in list:
+		more[e[0]] = true
+	for e in list:
+		var u: Dictionary = eng.units[e[0]]
+		var i: int = e[1]
+		var w: Dictionary = u["weapons"][i]
+		var info: Array = _shot_info(u, i, tid)
+		var key := "%d:%d" % [u["uid"], i]
+		var on: bool = fire_sel.get(key, -1) == tid
+		var other: bool = fire_sel.has(key) and not on
+		var txt := "%s %s" % [D.WSHORT[w["t"]], w["arc"]]
+		if more.size() > 1:
+			txt += " (%s)" % str(D.ship(u["id"])["n"]).substr(0, 10)
+		txt += "  %d%%  ~%.1f" % [int(round(info[0] * 100)), info[1]]
+		var b := UI.button(txt, 400, 40, 17, UI.GREEN if on else (UI.DIM if other else UI.LILAC))
+		b.tooltip_text = str(info[2]) + ("  (già puntata su un altro bersaglio)" if other else "")
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.pressed.connect(func():
+			if on:
+				fire_sel.erase(key)
+			else:
+				fire_sel[key] = tid
+			_fire_bar_update()
+			_open_tmenu(tid))
+		vb.add_child(b)
+	var r2 := HBoxContainer.new()
+	r2.add_theme_constant_override("separation", 8)
+	vb.add_child(r2)
+	var ba := UI.button("Tutte", 120, 40, 18, UI.TAN)
+	ba.pressed.connect(func():
+		for e2 in list:
+			if _shot_info(eng.units[e2[0]], e2[1], tid)[0] > 0.0:
+				fire_sel["%d:%d" % [e2[0], e2[1]]] = tid
+		_fire_bar_update()
+		_open_tmenu(tid))
+	r2.add_child(ba)
+	var bn := UI.button("Nessuna", 130, 40, 18, UI.LILAC)
+	bn.pressed.connect(func():
+		for e3 in list:
+			if fire_sel.get("%d:%d" % [e3[0], e3[1]], -1) == tid:
+				fire_sel.erase("%d:%d" % [e3[0], e3[1]])
+		_fire_bar_update()
+		_open_tmenu(tid))
+	r2.add_child(bn)
+	var bc := UI.button("Chiudi", 120, 40, 18, UI.RUST)
+	bc.pressed.connect(_close_tmenu)
+	r2.add_child(bc)
+	_place_tmenu()
+
+
+## Il mini menu segue il bersaglio sullo schermo, restando dentro la vista
+func _place_tmenu() -> void:
+	if not is_instance_valid(tmenu):
+		return
+	var sp: Vector2 = board.unit_screen(tmenu_tid)
+	var vs := get_viewport_rect().size
+	var sz := tmenu.get_combined_minimum_size()
+	var pos := sp + Vector2(70, -sz.y * 0.5)
+	if pos.x + sz.x > vs.x - 410:
+		pos.x = sp.x - 70 - sz.x
+	pos.x = clampf(pos.x, 445, maxf(445, vs.x - 410 - sz.x))
+	pos.y = clampf(pos.y, 74, vs.y - sz.y - 140)
+	tmenu.position = pos
+	tmenu.size = sz
+
+
+func _process(_dt: float) -> void:
+	if is_instance_valid(tmenu):
+		if not eng.units.has(tmenu_tid):
+			_close_tmenu()
+		else:
+			_place_tmenu()
+
+
 func _fire_assign(tid: int) -> void:
 	var u: Dictionary = eng.units.get(selected, {})
 	if u.is_empty() or int(u.get("side", -1)) != int(req["side"]):
@@ -1110,7 +1357,8 @@ func _target_info(u: Dictionary, i: int, tid: int) -> String:
 	return "%s  dist %d (eff. %d)  %s" % [str(D.ship(t["id"])["n"]).substr(0, 30), r, er, extra]
 
 
-func _fire_panel() -> void:
+func _fire_list() -> void:
+	_close_tmenu()
 	_clear_act()
 	var s := int(req["side"])
 	var head := HBoxContainer.new()
@@ -1138,7 +1386,7 @@ func _fire_panel() -> void:
 			var b := UI.button(str(D.ship(sh["id"])["n"]).substr(0, 18) + (" (%d)" % nsel if nsel > 0 else ""), 0, 38, 17, UI.TAN if id == int(u["uid"]) else UI.LILAC)
 			b.pressed.connect(func():
 				_select(id)
-				_fire_panel())
+				_fire_list())
 			tabs.add_child(b)
 	act_box.add_child(UI.label("Scegli le armi e il bersaglio (puoi anche toccare il bersaglio sulla mappa). Tutti sparano insieme.", 16, UI.MUTED))
 	var sc := ScrollContainer.new()
@@ -1170,7 +1418,7 @@ func _fire_panel() -> void:
 				fire_sel.erase(key)
 			else:
 				fire_sel[key] = tg[0]
-			_fire_panel())
+			_fire_list())
 		cb.mouse_entered.connect(func(): board.show_arc(u, w["arc"], mini(D.max_range(w["t"]), 30)))
 		hb.add_child(cb)
 		var ob := OptionButton.new()
@@ -1184,7 +1432,7 @@ func _fire_panel() -> void:
 				ob.select(j)
 		ob.item_selected.connect(func(j):
 			fire_sel[key] = tg[j]
-			_fire_panel())
+			_fire_list())
 		hb.add_child(ob)
 		list.add_child(hb)
 	if rows == 0:
@@ -1211,8 +1459,11 @@ func _fire_panel() -> void:
 						best = t2
 				if best != null:
 					fire_sel["%d:%d" % [u["uid"], i2]] = best
-		_fire_panel())
+		_fire_list())
 	row.add_child(ball)
+	var bmap := UI.button("Mira sulla mappa", 200, 52, 18, UI.SKY)
+	bmap.pressed.connect(_fire_panel)
+	row.add_child(bmap)
 	var bp := UI.button("Non sparare", 170, 52, 20, UI.LILAC)
 	bp.pressed.connect(func(): _provide({"shots": [], "launch": []}))
 	row.add_child(bp)

@@ -339,6 +339,18 @@ func sync() -> void:
 	for i in 6:
 		var arr3: Array = layers[i]
 		var keep := arr3.size() - _lost(arr3.size(), int(u["sh"][i]), int(u["sh_max"][i]))
+		# sotto il 20% lo scudo diventa rosso, sotto metà giallo
+		var f := float(u["sh"][i]) / maxf(1.0, float(u["sh_max"][i]))
+		var tint := Color(1.0, 0.15, 0.1) if f <= 0.2 else (Color(1.0, 0.75, 0.2) if f <= 0.5 else Color())
+		for j in keep:
+			if arr3[j] != null:
+				var lm: StandardMaterial3D = arr3[j].material_override
+				var base := Color(0.25, 0.6, 1.0).lerp(Color(0.5, 0.85, 1.0), float(j) / maxf(1.0, float(arr3.size())))
+				var cc := base if tint == Color() else tint
+				var a := 0.022 + 0.02 * float(j == keep - 1)
+				if tint != Color():
+					a *= 1.8
+				lm.albedo_color = Color(cc, a)
 		for j in range(arr3.size() - 1, keep - 1, -1):
 			if arr3[j] != null:
 				_pop_layer(arr3[j])

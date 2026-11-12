@@ -232,6 +232,12 @@ func _process(dt: float) -> void:
 			pl.scale = Vector3(k, k, k)
 	if sel_ring.visible:
 		sel_ring.rotation.y += dt * 0.8
+	for id in markers:
+		var un: Node3D = unit_nodes.get(id, null)
+		if un != null and is_instance_valid(un):
+			var mk: Node3D = markers[id]
+			mk.position = un.position + Vector3(0, (3.4 if show_models else 1.9) + sin(_t * 4.0) * 0.18, 0)
+			mk.rotation.y = _t * 1.5
 
 
 func _over_gui(sp: Vector2) -> bool:
@@ -371,7 +377,12 @@ func _ray_plane(sp: Vector2, h := 0.0) -> Variant:
 
 
 func _click(sp: Vector2) -> void:
-	# prima i modelli (sono sopra il piano), poi l'esagono
+	# prima le frecce sui bersagli, poi i modelli (sono sopra il piano), poi l'esagono
+	for id in markers:
+		var ms := marker_screen(id)
+		if ms.distance_to(sp) < 46.0:
+			unit_clicked.emit(id)
+			return
 	var best := -1
 	var bd := 40.0
 	for id in unit_nodes:
@@ -617,7 +628,7 @@ func refresh() -> void:
 				var seg: MeshInstance3D = shr.get_node("s%d" % i)
 				var mx := maxi(1, int(u["sh_max"][i]))
 				var f := float(u["sh"][i]) / mx
-				var c := Color(0.3, 0.6, 1.0).lerp(Color(1.0, 0.25, 0.2), 1.0 - f)
+				var c := shield_color(f)
 				if not u["sh_on"]:
 					c = Color(0.3, 0.3, 0.3)
 				seg.material_override = _emissive(c, 1.6 if u["sh_on"] else 0.2, alpha)
@@ -629,6 +640,69 @@ func refresh() -> void:
 			unit_nodes.erase(id)
 			unit_goal.erase(id)
 	_update_selection()
+
+
+## Colore di uno scudo secondo la parte rimasta: azzurro, giallo sotto metà, rosso sotto il 20%
+static func shield_color(f: float) -> Color:
+	if f <= 0.2:
+		return Color(1.0, 0.18, 0.12)
+	if f <= 0.5:
+		return Color(1.0, 0.8, 0.2)
+	return Color(0.3, 0.6, 1.0)
+
+
+# ---------------------------------------------------------------- frecce sui bersagli
+
+var markers := {}
+
+
+## Frecce sopra i bersagli a tiro (uid -> colore)
+func set_markers(list: Dictionary) -> void:
+	for id in markers.keys():
+		if not list.has(id):
+			markers[id].queue_free()
+			markers.erase(id)
+	for id in list:
+		if markers.has(id):
+			continue
+		var n := Node3D.new()
+		var cone := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.7
+		cm.bottom_radius = 0.0
+		cm.height = 1.2
+		cm.radial_segments = 4
+		cone.mesh = cm
+		cone.material_override = _emissive(list[id], 2.4)
+		n.add_child(cone)
+		var stem := MeshInstance3D.new()
+		var sm := CylinderMesh.new()
+		sm.top_radius = 0.22
+		sm.bottom_radius = 0.22
+		sm.height = 1.0
+		stem.mesh = sm
+		stem.material_override = cone.material_override
+		stem.position.y = 1.05
+		n.add_child(stem)
+		units_root.add_child(n)
+		markers[id] = n
+
+
+func marker_screen(id: int) -> Vector2:
+	var n: Node3D = markers.get(id, null)
+	if n == null or cam.is_position_behind(n.global_position):
+		return Vector2(-9999, -9999)
+	return cam.unproject_position(n.global_position)
+
+
+func unit_screen(id: int) -> Vector2:
+	var n: Node3D = unit_nodes.get(id, null)
+	if n == null:
+		return Vector2(-9999, -9999)
+	var p := n.global_position + Vector3(0, 1.2 if show_models else 0.2, 0)
+	if cam.is_position_behind(p):
+		return Vector2(-9999, -9999)
+	return cam.unproject_position(p)
 
 
 func select(uid: int) -> void:
