@@ -78,6 +78,7 @@ func _ready() -> void:
 		viewer = -2
 	board = Board3D.new()
 	add_child(board)
+	board.audio = main.audio
 	board.setup(eng)
 	board.unit_clicked.connect(_on_unit_clicked)
 	board.hex_clicked.connect(_on_hex_clicked)
@@ -161,6 +162,16 @@ func _build_ui() -> void:
 		var bs := UI.button("Salva", 110, 44, 20, UI.TAN)
 		bs.pressed.connect(_save)
 		hb.add_child(bs)
+	var bmu := UI.button("Musica", 110, 44, 20, UI.LILAC if Audio.music_on else UI.DIM)
+	bmu.pressed.connect(func():
+		main.audio.toggle_music()
+		UI.tint(bmu, UI.LILAC if Audio.music_on else UI.DIM))
+	hb.add_child(bmu)
+	var bfx := UI.button("Effetti", 110, 44, 20, UI.LILAC if Audio.sfx_on else UI.DIM)
+	bfx.pressed.connect(func():
+		main.audio.toggle_sfx()
+		UI.tint(bfx, UI.LILAC if Audio.sfx_on else UI.DIM))
+	hb.add_child(bfx)
 	var bm := UI.button("Menu", 110, 44, 20, UI.RUST)
 	bm.pressed.connect(_quit)
 	hb.add_child(bm)
@@ -731,34 +742,47 @@ func _energy_panel() -> void:
 				alloc_tab = k
 				_energy_panel())
 			tabs.add_child(b)
-	var cost: Dictionary = eng.alloc_cost(u, a)
-	var p: Dictionary = eng.power(u)
-	var info := UI.wrap(UI.mono("Disponibile %.1f (warp %d, impulso %d, reattori %d, batterie %.1f) - usata %.1f - dal warp %.1f su %.1f" % [p["total"], p["warp"], p["imp"], p["apr"], p["batt"], cost["tot"], cost["warp_need"], cost["warp_av"]], 16, UI.GREEN if cost["ok"] else UI.RED), 900)
-	act_box.add_child(info)
+	# barra dell'energia: quanto va a ogni voce e quanto resta
+	en_bar = Control.new()
+	en_bar.custom_minimum_size = Vector2(980, 30)
+	en_bar.draw.connect(_draw_energy_bar.bind(u, a))
+	act_box.add_child(en_bar)
+	en_info = UI.mono("", 16, UI.GREEN)
+	en_info.custom_minimum_size.x = 980
+	en_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	act_box.add_child(en_info)
 	var grid := HBoxContainer.new()
 	grid.add_theme_constant_override("separation", 26)
 	act_box.add_child(grid)
 	var colA := VBoxContainer.new()
-	colA.custom_minimum_size.x = 470
+	colA.custom_minimum_size.x = 480
+	colA.add_theme_constant_override("separation", 2)
 	var colB := VBoxContainer.new()
 	colB.custom_minimum_size.x = 470
+	colB.add_theme_constant_override("separation", 2)
 	grid.add_child(colA)
 	var bsc := ScrollContainer.new()
 	bsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	bsc.custom_minimum_size = Vector2(490, 0)
 	bsc.add_child(colB)
 	grid.add_child(bsc)
-	_stepper(colA, "Velocità (%.2f a esagono)" % float(d["mc"]), str(a["spd"]), func(dv):
-		a["spd"] = clampi(int(a["spd"]) + dv, 0, eng.max_speed(u)))
+	_slider(colA, "Velocità", 0, eng.max_speed(u), 1, int(a["spd"]),
+		func(v): return "%d  (%.1f en.)" % [int(v), v * float(d["mc"])],
+		func(v): a["spd"] = int(v), u, a, UI.SKY)
 	var phmax: float = eng.cap_max(u) - float(u["cap"])
-	_stepper(colA, "Phaser (cond. %.1f su %.1f)" % [u["cap"], eng.cap_max(u)], "%.1f" % float(a["ph"]), func(dv):
-		a["ph"] = clampf(float(a["ph"]) + dv * 0.5, 0.0, phmax))
-	_toggle(colA, "Scudi attivi (costo %s)" % str(d["sc"]), a.get("sh", true), func(v): a["sh"] = v)
-	_stepper(colA, "Rinforzo generale (2 a punto)", str(a.get("gr", 0)), func(dv):
-		a["gr"] = maxi(0, int(a.get("gr", 0)) + dv))
-	_toggle(colA, "Controllo del fuoco (costo 1)", a.get("fc", true), func(v): a["fc"] = v)
+	_slider(colA, "Phaser (cond. %.1f/%.1f)" % [u["cap"], eng.cap_max(u)], 0, phmax, 0.5, float(a["ph"]),
+		func(v): return "%.1f" % v,
+		func(v): a["ph"] = float(v), u, a, UI.ORANGE)
+	_slider(colA, "Rinforzo generale", 0, 10, 1, int(a.get("gr", 0)),
+		func(v): return "%d  (%d en.)" % [int(v), int(v) * 2],
+		func(v): a["gr"] = int(v), u, a, UI.BLUE)
+	var tg := HBoxContainer.new()
+	tg.add_theme_constant_override("separation", 8)
+	colA.add_child(tg)
+	_toggle(tg, "Scudi (%s)" % str(d["sc"]), a.get("sh", true), func(v): a["sh"] = v)
+	_toggle(tg, "Fuoco (1)", a.get("fc", true), func(v): a["fc"] = v)
 	if d.has("cloak"):
-		_toggle(colA, "Occultamento (costo %s)" % str(d["cloak"]), a.get("cl", false), func(v): a["cl"] = v)
+		_toggle(tg, "Occultam. (%s)" % str(d["cloak"]), a.get("cl", false), func(v): a["cl"] = v)
 	colB.add_child(UI.label("Armi pesanti", 18, UI.TAN))
 	var any := false
 	var nrows := 0
@@ -772,18 +796,15 @@ func _energy_panel() -> void:
 		any = true
 		nrows += 1
 		var k2: int = i
-		var cur := float(a["w"].get(i, 0))
-		var desc := _arm_desc(w, cur)
-		_stepper(colB, "%s %s %s" % [D.WSHORT[w["t"]], w["arc"], desc], "%d" % int(cur), func(dv):
-			var o: Array = eng.weapon_need(eng.units[u["uid"]]["weapons"][k2])
-			var idx := o.find(int(a["w"].get(k2, 0)))
-			if idx < 0:
-				idx = 0
-			idx = clampi(idx + dv, 0, o.size() - 1)
-			if int(o[idx]) == 0:
-				a["w"].erase(k2)
-			else:
-				a["w"][k2] = int(o[idx]))
+		var cur := int(a["w"].get(i, 0))
+		var idx0 := maxi(0, opts.find(cur))
+		_slider(colB, "%s %s" % [D.WSHORT[w["t"]], w["arc"]], 0, opts.size() - 1, 1, idx0,
+			func(v): return "%d  %s" % [int(opts[int(v)]), _arm_desc(w, float(opts[int(v)])).trim_prefix("(").trim_suffix(")")],
+			func(v):
+				if int(opts[int(v)]) == 0:
+					a["w"].erase(k2)
+				else:
+					a["w"][k2] = int(opts[int(v)]), u, a, UI.RED, 92, 215)
 	if not any:
 		colB.add_child(UI.label("Nessuna arma da caricare.", 16, UI.MUTED))
 	var drn := 0
@@ -792,30 +813,20 @@ func _energy_panel() -> void:
 			drn += int(w.get("n", 0))
 	if drn > 0:
 		colB.add_child(UI.label("Droni nelle rampe: %d (nessun costo)" % drn, 16, UI.MUTED))
-	bsc.custom_minimum_size.y = mini(nrows, 6) * 40 + 60
-	var srow := HBoxContainer.new()
-	srow.add_theme_constant_override("separation", 10)
+	bsc.custom_minimum_size.y = mini(nrows, 5) * 36 + 50
+	act_box.add_child(UI.label("Rinforzo dei singoli scudi (1 energia per punto)", 17, UI.TEXT))
+	var srow := GridContainer.new()
+	srow.columns = 3
+	srow.add_theme_constant_override("h_separation", 16)
 	act_box.add_child(srow)
-	srow.add_child(UI.label("Rinforzo degli scudi", 17, UI.TEXT))
 	for i in 6:
 		var k: int = i
-		var hb := HBoxContainer.new()
-		hb.add_theme_constant_override("separation", 2)
-		var bm := UI.small("-", UI.LILAC, 30)
-		bm.pressed.connect(func():
-			a["sr"][k] = maxi(0, int(a["sr"][k]) - 1)
-			_energy_panel())
-		hb.add_child(bm)
-		var lb := UI.mono("#%d:%d" % [i + 1, int(a["sr"][i])], 16, UI.SKY)
-		lb.custom_minimum_size.x = 54
-		lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		hb.add_child(lb)
-		var bp := UI.small("+", UI.ORANGE, 30)
-		bp.pressed.connect(func():
-			a["sr"][k] = int(a["sr"][k]) + 1
-			_energy_panel())
-		hb.add_child(bp)
-		srow.add_child(hb)
+		var box := VBoxContainer.new()
+		box.custom_minimum_size.x = 310
+		srow.add_child(box)
+		_slider(box, "Scudo #%d" % (i + 1), 0, 10, 1, int(a["sr"][i]),
+			func(v): return "+%d" % int(v),
+			func(v): a["sr"][k] = int(v), u, a, UI.SKY, 100, 40)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
 	act_box.add_child(row)
@@ -824,24 +835,141 @@ func _energy_panel() -> void:
 		alloc[u["uid"]] = helper_ai.energy_for(eng, u)
 		_energy_panel())
 	row.add_child(ba)
-	var bok := UI.primary(UI.button("Conferma", 240, 50, 22))
-	bok.disabled = not cost["ok"]
-	bok.pressed.connect(func():
+	en_ok = UI.primary(UI.button("Conferma", 240, 50, 22))
+	en_ok.pressed.connect(func():
 		var out := {}
 		for k in alloc:
 			out[k] = alloc[k]
 		_provide(out))
-	row.add_child(bok)
-	if not cost["ok"]:
-		row.add_child(UI.label("Energia insufficiente: riduci qualcosa.", 17, UI.RED))
+	row.add_child(en_ok)
+	en_warn = UI.label("", 17, UI.RED)
+	en_warn.custom_minimum_size.x = 380
+	row.add_child(en_warn)
+	_energy_refresh(u, a)
 	_show_act()
+
+
+var en_bar: Control
+var en_info: Label
+var en_ok: Button
+var en_warn: Label
+
+
+func _energy_refresh(u: Dictionary, a: Dictionary) -> void:
+	var cost: Dictionary = eng.alloc_cost(u, a)
+	var p: Dictionary = eng.power(u)
+	if is_instance_valid(en_info):
+		en_info.text = "Disponibile %.1f (warp %d, impulso %d, reattori %d, batterie %.1f)   Usata %.1f   Movimento e fotoni dal warp: %.1f su %.1f" % [p["total"], p["warp"], p["imp"], p["apr"], p["batt"], cost["tot"], cost["warp_need"], cost["warp_av"]]
+		en_info.add_theme_color_override("font_color", UI.GREEN if cost["ok"] else UI.RED)
+	if is_instance_valid(en_ok):
+		en_ok.disabled = not cost["ok"]
+	if is_instance_valid(en_warn):
+		en_warn.text = "" if cost["ok"] else ("Troppa energia dal warp: riduci velocità o fotoni." if cost["warp_need"] > cost["warp_av"] + 0.001 else "Energia insufficiente: riduci qualcosa.")
+	if is_instance_valid(en_bar):
+		en_bar.queue_redraw()
+
+
+## Barra segmentata: fissi, movimento, phaser, armi, rinforzi, libera
+func _draw_energy_bar(u: Dictionary, a: Dictionary) -> void:
+	var d: Dictionary = D.ship(u["id"])
+	var tot: float = maxf(1.0, eng.power(u)["total"])
+	var fixed := float(d["ls"]) + (1.0 if a.get("fc", true) else 0.0) + (float(d["sc"]) if a.get("sh", true) else 0.0)
+	if a.get("cl", false) and d.has("cloak"):
+		fixed += float(d["cloak"])
+	var weap := 0.0
+	for k in a.get("w", {}):
+		weap += float(a["w"][k])
+	var reinf := 2.0 * int(a.get("gr", 0))
+	for v in a.get("sr", []):
+		reinf += float(v)
+	var parts := [[fixed, UI.LILAC, "SISTEMI"], [float(a["spd"]) * float(d["mc"]), UI.SKY, "MOTORI"], [float(a["ph"]), UI.ORANGE, "PHASER"], [weap, UI.RED, "ARMI"], [reinf, UI.BLUE, "SCUDI"]]
+	var w := en_bar.size.x
+	var h := en_bar.size.y
+	en_bar.draw_rect(Rect2(0, 0, w, h), Color("#14121f"))
+	var x := 0.0
+	var used := 0.0
+	for pt in parts:
+		var pw: float = w * float(pt[0]) / tot
+		if pw <= 0.5:
+			continue
+		en_bar.draw_rect(Rect2(x, 0, minf(pw, w - x), h), pt[1])
+		if pw > 70:
+			en_bar.draw_string(UI.font_head, Vector2(x + 8, h - 8), "%s %.0f" % [pt[2], pt[0]], HORIZONTAL_ALIGNMENT_LEFT, pw - 10, 16, Color("#120a00"))
+		x += pw
+		used += float(pt[0])
+		if x >= w:
+			break
+	if used > tot + 0.001:
+		en_bar.draw_rect(Rect2(w - 8, 0, 8, h), UI.RED)
+	elif w - x > 70:
+		en_bar.draw_string(UI.font_head, Vector2(x + 8, h - 8), "LIBERA %.1f" % (tot - used), HORIZONTAL_ALIGNMENT_LEFT, w - x - 10, 16, UI.MUTED)
+
+
+static var _grab_tex: Texture2D
+
+
+func _grabber() -> Texture2D:
+	if _grab_tex == null:
+		var img := Image.create(30, 30, false, Image.FORMAT_RGBA8)
+		for y in 30:
+			for x in 30:
+				var dd := Vector2(x - 14.5, y - 14.5).length()
+				var c := Color(0, 0, 0, 0)
+				if dd < 13.5:
+					c = Color("#ffcc99") if dd > 9.5 else Color("#ff9c00")
+				elif dd < 14.5:
+					c = Color(1, 0.8, 0.6, 14.5 - dd)
+				img.set_pixel(x, y, c)
+		_grab_tex = ImageTexture.create_from_image(img)
+	return _grab_tex
+
+
+## Cursore a scorrimento: aggiorna subito la ripartizione senza ricostruire il pannello
+func _slider(parent: Control, label: String, minv: float, maxv: float, step: float, cur: float, fmt: Callable, setf: Callable, u: Dictionary, a: Dictionary, col: Color, label_w := 170, val_w := 150) -> void:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 8)
+	var l := UI.label(label, 17, UI.TEXT)
+	l.custom_minimum_size.x = label_w
+	l.clip_text = true
+	hb.add_child(l)
+	var sl := HSlider.new()
+	sl.min_value = minv
+	sl.max_value = maxf(maxv, minv + step) if maxv > minv else minv + step
+	sl.editable = maxv > minv
+	sl.step = step
+	sl.value = cur
+	sl.custom_minimum_size = Vector2(150, 34)
+	sl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sl.focus_mode = Control.FOCUS_NONE
+	var track := UI.box(Color("#2a2640"), Color("#2a2640"), 0, 6, 0)
+	track.content_margin_top = 4
+	track.content_margin_bottom = 4
+	sl.add_theme_stylebox_override("slider", track)
+	var fill := UI.box(col, col, 0, 6, 0)
+	fill.content_margin_top = 4
+	fill.content_margin_bottom = 4
+	sl.add_theme_stylebox_override("grabber_area", fill)
+	sl.add_theme_stylebox_override("grabber_area_highlight", fill)
+	sl.add_theme_icon_override("grabber", _grabber())
+	sl.add_theme_icon_override("grabber_highlight", _grabber())
+	sl.add_theme_icon_override("grabber_disabled", _grabber())
+	hb.add_child(sl)
+	var v := UI.mono(str(fmt.call(cur)), 17, UI.TAN)
+	v.custom_minimum_size.x = val_w
+	v.clip_text = true
+	hb.add_child(v)
+	sl.value_changed.connect(func(x):
+		setf.call(x)
+		v.text = str(fmt.call(x))
+		_energy_refresh(u, a))
+	parent.add_child(hb)
 
 
 func _arm_desc(w: Dictionary, e: float) -> String:
 	var t: String = w["t"]
 	if t == "PHOT":
 		if w["st"] == 0:
-			return "(1o turno di carica)" if e >= 2 else "(scarico)"
+			return "(1° turno di carica)" if e >= 2 else "(scarico)"
 		if w["st"] == 1:
 			return ("(pronto, sovracc. +%d)" % int(e - 2) if e > 2 else "(pronto)") if e >= 2 else "(si scarica!)"
 		return ("(tenuto pronto%s)" % (", sovracc. +%d" % int(e - 1) if e > 1 else "")) if e >= 1 else "(si scarica!)"
@@ -881,11 +1009,8 @@ func _stepper(parent: Control, label: String, val: String, fn: Callable) -> void
 
 func _toggle(parent: Control, label: String, on: bool, fn: Callable) -> void:
 	var hb := HBoxContainer.new()
-	var l := UI.label(label, 17, UI.TEXT)
-	l.custom_minimum_size.x = 320
-	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hb.add_child(l)
-	var b := UI.small("Sì" if on else "No", UI.GREEN if on else UI.MUTED, 118)
+	var b := UI.small(label + (": SÌ" if on else ": NO"), UI.GREEN if on else UI.MUTED, 150)
+	b.add_theme_font_size_override("font_size", 16)
 	b.pressed.connect(func():
 		fn.call(not on)
 		_energy_panel())
@@ -940,7 +1065,13 @@ func _move_targets(u: Dictionary) -> Array:
 		var col := UI.SKY if m.begins_with("S") else (UI.TAN if m == "F" else UI.ORANGE)
 		if not H.on_map(h):
 			col = UI.RED
-		out.append([h, names[m], m, col])
+		var dup := false
+		for o in out:
+			if o[0] == h:
+				o[1] = str(o[1]) + " / " + str(names[m])
+				dup = true
+		if not dup:
+			out.append([h, names[m], m, col])
 	return out
 
 
@@ -1728,6 +1859,7 @@ func _replay_once() -> void:
 	rp_eng.replay_queue = eng.history.duplicate()
 	add_child(rp_eng)
 	rp_board = Board3D.new()
+	rp_board.audio = main.audio
 	add_child(rp_board)
 	move_child(rp_board, 0)
 	rp_board.setup(rp_eng)

@@ -7,6 +7,7 @@ var lobby := {}
 var menu_state := {}
 var stars: Control
 var prova_ship := "kli_b10"
+var audio: Audio
 
 
 func get_net() -> Net:
@@ -21,6 +22,8 @@ func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	# la radice non deve catturare il mouse, altrimenti trascinare sulla mappa 3D non arriva alla telecamera
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	audio = Audio.new()
+	add_child(audio)
 	stars = UI.Starfield.new()
 	add_child(stars)
 	show_menu()
@@ -43,6 +46,7 @@ func _clear() -> void:
 func show_menu() -> void:
 	_clear()
 	stars.visible = true
+	audio.play_menu()
 	var m := preload("res://scripts/ui/menu.gd").new()
 	m.main = self
 	add_child(m)
@@ -52,6 +56,7 @@ func show_menu() -> void:
 func start_game(config: Dictionary) -> void:
 	_clear()
 	stars.visible = false
+	audio.play_battle()
 	var g := preload("res://scripts/ui/game_view.gd").new()
 	g.main = self
 	g.config = config

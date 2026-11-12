@@ -149,11 +149,12 @@ func _build_selection() -> void:
 	var tm := TorusMesh.new()
 	tm.inner_radius = 0.92
 	tm.outer_radius = 1.02
-	tm.rings = 48
+	tm.rings = 6
 	tm.ring_segments = 6
 	sel_ring.mesh = tm
 	sel_ring.material_override = _emissive(Color(1.0, 0.75, 0.2), 2.0)
 	sel_ring.visible = false
+	sel_ring.rotation.y = PI / 6.0
 	add_child(sel_ring)
 	arc_mesh = MeshInstance3D.new()
 	arc_mesh.mesh = ImmediateMesh.new()
@@ -225,13 +226,13 @@ func _process(dt: float) -> void:
 		n.rotation.y = lerp_angle(n.rotation.y, rg, minf(1.0, dt * 9.0))
 		var mdl := n.get_node_or_null("modello")
 		if mdl != null:
-			mdl.position.y = 1.2 + sin(_t * 1.4 + float(id % 11)) * 0.06
+			mdl.position.y = 1.5 + sin(_t * 1.4 + float(id % 11)) * 0.06
 		var pl := n.get_node_or_null("sfera")
 		if pl != null:
 			var k := 1.0 + 0.15 * sin(_t * 9.0 + id)
 			pl.scale = Vector3(k, k, k)
 	if sel_ring.visible:
-		sel_ring.rotation.y += dt * 0.8
+		pass
 	for id in markers:
 		var un: Node3D = unit_nodes.get(id, null)
 		if un != null and is_instance_valid(un):
@@ -451,17 +452,23 @@ func _side_col(s: int) -> Color:
 
 func _ship_node(u: Dictionary) -> Node3D:
 	var root := Node3D.new()
-	# pedina originale del modulo, piatta sul campo stellare, con il bordo nel colore del giocatore
-	var base := MeshInstance3D.new()
-	var bm := BoxMesh.new()
-	bm.size = Vector3(1.62, 0.08, 1.62)
-	base.mesh = bm
-	base.material_override = _emissive(_side_col(u["side"]), 0.8)
-	base.position.y = 0.02
-	root.add_child(base)
+	# esagono evidenziato nel colore del giocatore, sotto la pedina originale del modulo
+	var hx := MeshInstance3D.new()
+	hx.name = "esagono"
+	hx.mesh = _hex_ring()
+	hx.material_override = _emissive(_side_col(u["side"]), 1.6, 0.95)
+	hx.position.y = 0.03
+	root.add_child(hx)
+	var hf := MeshInstance3D.new()
+	hf.mesh = _hex_fill()
+	var fm := _emissive(_side_col(u["side"]), 0.6, 0.18)
+	fm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	hf.material_override = fm
+	hf.position.y = 0.02
+	root.add_child(hf)
 	var tok := MeshInstance3D.new()
 	var qm := PlaneMesh.new()
-	qm.size = Vector2(1.45, 1.45)
+	qm.size = Vector2(1.2, 1.2)
 	tok.mesh = qm
 	var tm := StandardMaterial3D.new()
 	tm.albedo_texture = load("res://assets/counters/%s.png" % u["id"])
@@ -477,11 +484,11 @@ func _ship_node(u: Dictionary) -> Node3D:
 		holder.name = "modello"
 		var mdl := ps.instantiate()
 		var sz: int = int(D.ship(u["id"])["sz"])
-		var k := 2.6 if sz <= 2 else (2.2 if sz == 3 else 1.7)
+		var k := 3.1 if sz <= 2 else (2.65 if sz == 3 else 2.1)
 		mdl.scale = Vector3(k, k, k)
 		_apply_mat(mdl, _hull_mat(u["race"]))
 		holder.add_child(mdl)
-		holder.position.y = 1.2
+		holder.position.y = 1.5
 		holder.visible = show_models
 		root.add_child(holder)
 		holder.add_child(_shield_bubble(k))
@@ -490,12 +497,12 @@ func _ship_node(u: Dictionary) -> Node3D:
 		var cm := CylinderMesh.new()
 		cm.top_radius = 0.025
 		cm.bottom_radius = 0.025
-		cm.height = 1.1
+		cm.height = 1.4
 		st.mesh = cm
 		st.material_override = _emissive(_side_col(u["side"]), 1.2, 0.7)
 		st.position.y = 0.5
 		holder.add_child(st)
-		st.position.y = -0.6
+		st.position.y = -0.75
 	# anelli degli scudi
 	var shr := Node3D.new()
 	shr.name = "scudi"
@@ -503,10 +510,10 @@ func _ship_node(u: Dictionary) -> Node3D:
 	for i in 6:
 		var seg := MeshInstance3D.new()
 		var sm := BoxMesh.new()
-		sm.size = Vector3(0.62, 0.05, 0.08)
+		sm.size = Vector3(0.46, 0.05, 0.07)
 		seg.mesh = sm
 		var ang := deg_to_rad(i * 60.0)
-		seg.position = Vector3(sin(ang) * 1.0, 0.1, -cos(ang) * 1.0)
+		seg.position = Vector3(sin(ang) * 0.76, 0.1, -cos(ang) * 0.76)
 		seg.rotation.y = -ang
 		seg.name = "s%d" % i
 		shr.add_child(seg)
@@ -520,7 +527,7 @@ func _ship_node(u: Dictionary) -> Node3D:
 	lab.outline_size = 10
 	lab.modulate = _side_col(u["side"]).lightened(0.25)
 	lab.outline_modulate = Color(0, 0, 0, 0.9)
-	lab.position = Vector3(0, 2.4, 0)
+	lab.position = Vector3(0, 3.0, 0)
 	lab.no_depth_test = true
 	root.add_child(lab)
 	return root
@@ -542,7 +549,7 @@ func _shield_bubble(k: float) -> Node3D:
 		b.add_child(sec)
 		for j in BUBBLE_LAYERS:
 			var lay := MeshInstance3D.new()
-			lay.mesh = _sector_mesh(i, k * 0.62 + j * 0.07)
+			lay.mesh = _sector_mesh(i, minf(k * 0.55, 1.75) + j * 0.07)
 			var m := StandardMaterial3D.new()
 			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
@@ -622,6 +629,42 @@ func flash_shield(uid: int, i: int) -> void:
 			sec.set_meta("flash", v)
 			if eng.units.has(uid):
 				_update_bubble(n, eng.units[uid]), 6.0, 0.0, 0.6)
+
+
+var _hex_ring_mesh: ArrayMesh
+var _hex_fill_mesh: ArrayMesh
+
+
+## Contorno dell'esagono (lato piatto in alto, raggio 1 = un esagono della mappa)
+func _hex_ring() -> ArrayMesh:
+	if _hex_ring_mesh == null:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for i in 6:
+			var a0 := deg_to_rad(i * 60.0)
+			var a1 := deg_to_rad((i + 1) * 60.0)
+			var o0 := Vector3(cos(a0), 0, sin(a0)) * 0.99
+			var o1 := Vector3(cos(a1), 0, sin(a1)) * 0.99
+			var i0 := Vector3(cos(a0), 0, sin(a0)) * 0.86
+			var i1 := Vector3(cos(a1), 0, sin(a1)) * 0.86
+			for v in [o0, i0, o1, o1, i0, i1]:
+				st.add_vertex(v)
+		_hex_ring_mesh = st.commit()
+	return _hex_ring_mesh
+
+
+func _hex_fill() -> ArrayMesh:
+	if _hex_fill_mesh == null:
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		for i in 6:
+			var a0 := deg_to_rad(i * 60.0)
+			var a1 := deg_to_rad((i + 1) * 60.0)
+			st.add_vertex(Vector3.ZERO)
+			st.add_vertex(Vector3(cos(a0), 0, sin(a0)) * 0.86)
+			st.add_vertex(Vector3(cos(a1), 0, sin(a1)) * 0.86)
+		_hex_fill_mesh = st.commit()
+	return _hex_fill_mesh
 
 
 func _small_node(u: Dictionary) -> Node3D:
@@ -842,8 +885,8 @@ func set_ghosts(list: Array) -> void:
 		lab.text = str(g[1])
 		lab.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		lab.font = UI.font_head
-		lab.font_size = 40
-		lab.pixel_size = 0.011
+		lab.font_size = 34
+		lab.pixel_size = 0.009
 		lab.outline_size = 8
 		lab.modulate = col
 		lab.position = H.world(h) + Vector3(0, 0.55, 0)
@@ -888,9 +931,31 @@ func _pos_of(uid: int, fallback := Vector3.ZERO) -> Vector3:
 	return fallback
 
 
+var audio = null
+
+
+func _sfx(n: String, v := 0.0) -> void:
+	if audio != null:
+		audio.fx(n, v)
+
+
 func _on_fx(kind: String, d: Dictionary) -> void:
 	if eng.headless:
 		return
+	match kind:
+		"shot":
+			var w0 := str(d["w"])
+			_sfx("phaser" if w0.begins_with("PH") else ("fotone" if w0 == "FOTON" else "disgregatore"), -3.0)
+		"impact":
+			_sfx("esplosione" if d.get("kind", "") == "plasma" else "drone")
+		"boom":
+			_sfx("esplosione", 3.0)
+		"shield":
+			_sfx("scudo", -4.0)
+		"internal":
+			_sfx("danni", -2.0)
+		"launch":
+			_sfx("lancio", -4.0)
 	match kind:
 		"shot":
 			var a := _pos_of(int(d["from"]))
