@@ -484,6 +484,7 @@ func _ship_node(u: Dictionary) -> Node3D:
 		holder.position.y = 1.2
 		holder.visible = show_models
 		root.add_child(holder)
+		holder.add_child(_shield_bubble(k))
 		# stelo luminoso fra pedina e modello
 		var st := MeshInstance3D.new()
 		var cm := CylinderMesh.new()
@@ -523,6 +524,104 @@ func _ship_node(u: Dictionary) -> Node3D:
 	lab.no_depth_test = true
 	root.add_child(lab)
 	return root
+
+
+# ---------------------------------------------------------------- scudi a strati attorno al modello
+
+const BUBBLE_LAYERS := 5
+
+
+## Sei settori di scudo, uno per lato dell'esagono, ognuno fatto di strati semitrasparenti
+## (a cipolla): gli strati visibili sono proporzionali alle caselle rimaste di quello scudo.
+func _shield_bubble(k: float) -> Node3D:
+	var b := Node3D.new()
+	b.name = "bolla"
+	for i in 6:
+		var sec := Node3D.new()
+		sec.name = "b%d" % i
+		b.add_child(sec)
+		for j in BUBBLE_LAYERS:
+			var lay := MeshInstance3D.new()
+			lay.mesh = _sector_mesh(i, k * 0.62 + j * 0.07)
+			var m := StandardMaterial3D.new()
+			m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.cull_mode = BaseMaterial3D.CULL_DISABLED
+			m.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+			lay.material_override = m
+			sec.add_child(lay)
+	return b
+
+
+var _sector_cache := {}
+
+
+func _sector_mesh(i: int, r: float) -> ArrayMesh:
+	var key := "%d:%.3f" % [i, r]
+	if _sector_cache.has(key):
+		return _sector_cache[key]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var a0 := deg_to_rad(i * 60.0 - 29.0)
+	var a1 := deg_to_rad(i * 60.0 + 29.0)
+	var e0 := deg_to_rad(-40.0)
+	var e1 := deg_to_rad(50.0)
+	var pts := []
+	for ie in 7:
+		var row := []
+		var e := lerpf(e0, e1, ie / 6.0)
+		for ia in 9:
+			var a := lerpf(a0, a1, ia / 8.0)
+			row.append(Vector3(sin(a) * cos(e) * r, sin(e) * r * 0.55, -cos(a) * cos(e) * r))
+		pts.append(row)
+	for ie in 6:
+		for ia in 8:
+			st.add_vertex(pts[ie][ia])
+			st.add_vertex(pts[ie + 1][ia])
+			st.add_vertex(pts[ie + 1][ia + 1])
+			st.add_vertex(pts[ie][ia])
+			st.add_vertex(pts[ie + 1][ia + 1])
+			st.add_vertex(pts[ie][ia + 1])
+	var m := st.commit()
+	_sector_cache[key] = m
+	return m
+
+
+func _update_bubble(n: Node3D, u: Dictionary) -> void:
+	var b := n.get_node_or_null("modello/bolla")
+	if b == null:
+		return
+	b.visible = u["sh_on"] and u["cloak"] == 0
+	for i in 6:
+		var f := float(u["sh"][i]) / maxf(1.0, float(u["sh_max"][i]))
+		var keep := int(ceil(f * BUBBLE_LAYERS - 0.001))
+		var col := shield_color(f)
+		if f > 0.5:
+			col = Color(0.3, 0.62, 1.0)
+		var sec: Node3D = b.get_node("b%d" % i)
+		var boost := 1.0 + float(sec.get_meta("flash", 0.0))
+		for j in BUBBLE_LAYERS:
+			var lay: MeshInstance3D = sec.get_child(j)
+			lay.visible = j < keep
+			var a := (0.17 if j == keep - 1 else 0.08) * (1.4 if f <= 0.2 else 1.0) * boost
+			(lay.material_override as StandardMaterial3D).albedo_color = Color(col, a)
+
+
+## Lampo sul settore colpito
+func flash_shield(uid: int, i: int) -> void:
+	var n: Node3D = unit_nodes.get(uid, null)
+	if n == null or not is_instance_valid(n):
+		return
+	var sec := n.get_node_or_null("modello/bolla/b%d" % i)
+	if sec == null:
+		return
+	var tw := create_tween()
+	tw.tween_method(func(v: float):
+		if is_instance_valid(sec):
+			sec.set_meta("flash", v)
+			if eng.units.has(uid):
+				_update_bubble(n, eng.units[uid]), 6.0, 0.0, 0.6)
 
 
 func _small_node(u: Dictionary) -> Node3D:
@@ -623,6 +722,7 @@ func refresh() -> void:
 			var mdl := n.get_node_or_null("modello")
 			if mdl != null:
 				mdl.visible = show_models and u["cloak"] == 0
+			_update_bubble(n, u)
 			var shr: Node3D = n.get_node("scudi")
 			for i in 6:
 				var seg: MeshInstance3D = shr.get_node("s%d" % i)
@@ -810,9 +910,11 @@ func _on_fx(kind: String, d: Dictionary) -> void:
 				p = H.world(d["pos"], 1.0)
 			_explosion(p, 2.4 if kind == "boom" else 1.0, Color(1.0, 0.6, 0.2))
 		"shield":
-			_explosion(_pos_of(int(d["uid"])), 0.7, Color(0.4, 0.7, 1.0))
+			flash_shield(int(d["uid"]), int(d["s"]))
 		"internal":
 			_explosion(_pos_of(int(d["uid"])), 0.9, Color(1.0, 0.4, 0.1))
+			if d.has("s"):
+				flash_shield(int(d["uid"]), int(d["s"]))
 
 
 func _beam(a: Vector3, b: Vector3, col: Color, w: float) -> void:

@@ -983,7 +983,7 @@ func _damage(t: Dictionary, shi: int, dmg: int, once: Dictionary) -> void:
 		dmg -= c
 	if dmg > 0:
 		log_msg("%s: %d danni allo scudo #%d, %d danni interni." % [t["name"], start - dmg, shi + 1, dmg])
-		fx.emit("internal", {"uid": t["uid"], "n": dmg})
+		fx.emit("internal", {"uid": t["uid"], "n": dmg, "s": shi})
 		_internal(t, dmg, once)
 	else:
 		log_msg("%s: lo scudo #%d assorbe %d danni." % [t["name"], shi + 1, start])
