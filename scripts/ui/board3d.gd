@@ -200,6 +200,8 @@ func focus_hex(h: Vector2i) -> void:
 func set_top_view(on: bool) -> void:
 	top_view = on
 	show_models = not on
+	if on:
+		dist = maxf(dist, 44.0)
 	for id in unit_nodes:
 		var n: Node3D = unit_nodes[id]
 		var mdl := n.get_node_or_null("modello")

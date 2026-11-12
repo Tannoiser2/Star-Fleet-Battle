@@ -25,10 +25,11 @@ func _init() -> void:
 		if mode != "ia":
 			m.st["sides"][0]["ctrl"] = 0
 		else:
-			m.st["sides"][0]["ctrl"] = 3
+			for sd in m.st["sides"]: sd["ctrl"] = 3
 		var cfg: Dictionary = m._config()
 		cfg["seed"] = 11
-		cfg["anim"] = 4.0
+		cfg["anim"] = 30.0 if mode == "ia" else 4.0
+		if mode == "ia": cfg["turns"] = 4
 		main.start_game(cfg)
 	elif mode == "regole":
 		main.show_rules()

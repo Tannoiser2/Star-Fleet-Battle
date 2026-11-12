@@ -21,7 +21,8 @@ const CODE_LETTERS := "ABCDEFGHJKLMNPQRSTUVWXYZ"
 ## The Awful Green Things "awfulgreen/rooms", DeltaVee "deltavee/rooms", StarForce "starforce/rooms", Star Fleet Battles "starfleet/rooms".
 
 const ROOT := "starfleet/rooms"
-const SAVES := "starfleet/saves"
+## Salvataggi nella regola comune del database: <gioco>/partite/<codice di 6 lettere> con il campo "dati"
+const SAVES := "starfleet/partite"
 
 var db_url := DB_URL
 var auth_url := AUTH_URL + API_KEY
@@ -349,14 +350,12 @@ func save_game(data: Dictionary, code := "") -> String:
 	for attempt in 6:
 		var c := code
 		if c == "":
-			for k in 5:
+			for k in 6:
 				c += CODE_LETTERS[g.randi() % CODE_LETTERS.length()]
 			var ex := await db_get(SAVES + "/" + c + "/owner")
 			if ex["code"] == 200 and ex["data"] != null and str(ex["data"]) != uid:
 				continue
-		var body := data.duplicate()
-		body["owner"] = uid
-		body["saved"] = {".sv": "timestamp"}
+		var body := {"dati": var_to_str(data), "owner": uid, "saved": {".sv": "timestamp"}}
 		var r := await db_put(SAVES + "/" + c, body)
 		if r["code"] == 200:
 			return c
@@ -369,4 +368,7 @@ func load_game(code: String) -> Dictionary:
 	if not await sign_in():
 		return {}
 	var r := await db_get(SAVES + "/" + code.strip_edges().to_upper())
-	return r["data"] if r["code"] == 200 and r["data"] is Dictionary else {}
+	if r["code"] != 200 or not (r["data"] is Dictionary):
+		return {}
+	var d = str_to_var(str(r["data"].get("dati", "")))
+	return d if d is Dictionary else {}

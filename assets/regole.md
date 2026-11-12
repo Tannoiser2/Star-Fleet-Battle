@@ -81,7 +81,7 @@ In ogni impulso in cui hai qualcosa di sensato da fare, il gioco si ferma e ti m
 ## Partite online e salvataggi
 
 - **Online**: chi crea la stanza riceve un codice di quattro lettere da mandare agli amici. I posti rimasti liberi alla partenza li gioca il computer, e se un giocatore non risponde per più di un minuto il computer lo sostituisce finché non rientra.
-- **Salva**: la partita viene salvata in rete con un codice di cinque lettere; dal menu, **Carica una partita** la riprende esattamente dal punto in cui eri.
+- **Salva**: la partita viene salvata in rete con un codice di sei lettere; dal menu, **Carica una partita** la riprende esattamente dal punto in cui eri.
 
 ## Avversari controllati dal computer
 

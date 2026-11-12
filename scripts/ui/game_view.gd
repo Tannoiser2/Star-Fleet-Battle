@@ -604,6 +604,7 @@ func _on_request(r: Dictionary) -> void:
 			var mine := eng.ships_of(s)
 			if not mine.is_empty() and (selected < 0 or not eng.units.has(selected) or int(eng.units[selected]["side"]) != s):
 				_select(int(mine[0]["uid"]))
+			_focus_fight()
 			_fire_panel()
 
 
@@ -986,6 +987,21 @@ func _fire_interesting(s: int) -> bool:
 	return false
 
 
+## Inquadra la nave selezionata e il nemico più vicino
+func _focus_fight() -> void:
+	var u: Dictionary = eng.units.get(selected, {})
+	if u.is_empty():
+		return
+	var e = helper_ai.nearest_enemy(eng, u)
+	if e == null:
+		board.focus_hex(u["pos"])
+		return
+	var a := H.world(u["pos"])
+	var b := H.world(e["pos"])
+	board.target_goal = (a + b) * 0.5 + Vector3(sin(board.yaw), 0, cos(board.yaw)) * board.dist * 0.25
+	board.dist = clampf(a.distance_to(b) * 1.3 + 12.0, 18.0, 70.0)
+
+
 func _fire_assign(tid: int) -> void:
 	var u: Dictionary = eng.units.get(selected, {})
 	if u.is_empty() or int(u.get("side", -1)) != int(req["side"]):
@@ -1028,7 +1044,7 @@ func _target_info(u: Dictionary, i: int, tid: int) -> String:
 			extra = "colpisce con 1-%d, %d danni" % [D.DISR_HIT[c2], D.DISR_DMG[c2]]
 	elif D.is_plasma(w["t"]):
 		extra = "testata %d" % D.plasma_strength(w["pt"], r)
-	return "%s  dist %d (eff. %d)  %s" % [str(D.ship(t["id"])["n"]).substr(0, 20), r, er, extra]
+	return "%s  dist %d (eff. %d)  %s" % [str(D.ship(t["id"])["n"]).substr(0, 30), r, er, extra]
 
 
 func _fire_panel() -> void:
@@ -1084,7 +1100,7 @@ func _fire_panel() -> void:
 		var hb := HBoxContainer.new()
 		hb.add_theme_constant_override("separation", 8)
 		var on := fire_sel.has(key)
-		var cb := UI.button(("Sì  " if on else "No  ") + str(D.WSHORT[w["t"]]) + " " + str(w["arc"]), 190, 40, 18, UI.GREEN if on else UI.DIM)
+		var cb := UI.button(("Sì  " if on else "No  ") + str(D.WSHORT[w["t"]]) + " " + str(w["arc"]), 190, 40, 18, UI.GREEN if on else UI.MUTED)
 		var wi: int = i
 		cb.pressed.connect(func():
 			if fire_sel.has(key):
@@ -1115,24 +1131,39 @@ func _fire_panel() -> void:
 	row.add_theme_constant_override("separation", 10)
 	act_box.add_child(row)
 	var nsel2 := fire_sel.size()
-	var bf := UI.primary(UI.button("Fuoco! (%d)" % nsel2 if nsel2 > 0 else "Fuoco!", 190, 52, 22))
+	var bf := UI.primary(UI.button("Fuoco! (%d)" % nsel2 if nsel2 > 0 else "Fuoco!", 160, 52, 22))
 	bf.disabled = nsel2 == 0
 	bf.pressed.connect(_fire_send)
 	row.add_child(bf)
-	var bp := UI.button("Non sparare", 180, 52, 20, UI.LILAC)
+	var ball := UI.button("Tutte", 120, 52, 20, UI.TAN)
+	ball.pressed.connect(func():
+		for i2 in u["weapons"].size():
+			if eng.weapon_usable(u, i2):
+				var tg2: Array = eng.targets_for(u, i2)
+				var best = null
+				var bd := 9999
+				for t2 in tg2:
+					if eng.units[t2]["kind"] == "ship" and H.dist(u["pos"], eng.units[t2]["pos"]) < bd:
+						bd = H.dist(u["pos"], eng.units[t2]["pos"])
+						best = t2
+				if best != null:
+					fire_sel["%d:%d" % [u["uid"], i2]] = best
+		_fire_panel())
+	row.add_child(ball)
+	var bp := UI.button("Non sparare", 170, 52, 20, UI.LILAC)
 	bp.pressed.connect(func(): _provide({"shots": [], "launch": []}))
 	row.add_child(bp)
-	var bt := UI.button("Attendi 4 impulsi", 210, 52, 18, UI.LILAC)
+	var bt := UI.button("Attendi 4 impulsi", 190, 52, 18, UI.LILAC)
 	bt.pressed.connect(func():
 		skip_fire_until[s] = eng.turn * 100 + eng.imp + 3
 		_provide({"shots": [], "launch": []}))
 	row.add_child(bt)
-	var bai := UI.button("Fuoco automatico", 210, 52, 18, UI.BLUE)
+	var bai := UI.button("Fuoco automatico", 190, 52, 18, UI.BLUE)
 	bai.pressed.connect(func():
 		_provide(helper_ai.fire_for(eng, s)))
 	row.add_child(bai)
 	if eng.can_launch_shuttle(u):
-		var bl := UI.button("Lancia caccia" if int(u["fighters"]) > 0 else "Lancia navetta", 190, 52, 18, UI.SKY)
+		var bl := UI.button("Lancia caccia" if int(u["fighters"]) > 0 else "Lancia navetta", 170, 52, 18, UI.SKY)
 		bl.pressed.connect(func():
 			var shots := _collect_shots()
 			shots["launch"].append([u["uid"], "shut", 0])

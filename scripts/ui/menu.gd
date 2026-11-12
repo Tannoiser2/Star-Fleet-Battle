@@ -342,8 +342,8 @@ func _load_panel() -> void:
 	var p := _overlay()
 	var vb: VBoxContainer = p.get_meta("vb")
 	vb.add_child(UI.title("Carica una partita", 46))
-	vb.add_child(UI.wrap(UI.label("Scrivi il codice di cinque lettere che hai ricevuto quando hai salvato.", 19), 780))
-	var le := _line("Codice", 5)
+	vb.add_child(UI.wrap(UI.label("Scrivi il codice di sei lettere che hai ricevuto quando hai salvato.", 19), 780))
+	var le := _line("Codice", 6)
 	le.text_changed.connect(func(t):
 		le.text = t.to_upper()
 		le.caret_column = t.length())
@@ -568,6 +568,7 @@ func _online_start() -> void:
 			cfg["sides"][i]["ai"] = false
 		else:
 			cfg["sides"][i]["ai"] = true
+			cfg["sides"][i]["level"] = maxi(2, int(cfg["sides"][i]["level"]))
 	var g := {"cfg": var_to_str(cfg)}
 	if not await net.start_room(code, g):
 		_say("Non riesco ad avviare la partita (%s)." % net.last_error)

@@ -603,7 +603,7 @@ func _can_act(s: int) -> bool:
 					continue
 				var er := eff_range(u, t)
 				var r := H.dist(u["pos"], t["pos"])
-				if D.is_phaser(w["t"]) and D.phaser_damage(w["t"], 1, er) > 0 and (er <= 15 or imp >= 30):
+				if D.is_phaser(w["t"]) and D.phaser_damage(w["t"], 1, er) > 0 and (er <= 10 or imp >= 30):
 					return true
 				if w["t"] == "PHOT" and (er <= 12 or imp >= 31):
 					return true
