@@ -405,7 +405,7 @@ func _refresh_status() -> void:
 		status_box.add_child(UI.head("Nave " + str(u["gone"]), 24, UI.RED))
 		return
 	_kv(status_box, "Posizione", "%s  prua %s" % [H.label(u["pos"]), H.DIR_LETTERS[u["face"]]])
-	_kv(status_box, "Velocità", "%d (virata %d, dritto %d)" % [u["speed"], eng.turn_mode_of(u), mini(int(u["straight"]), 99)])
+	_kv(status_box, "Velocità", "%d (modo di virata %d)" % [u["speed"], eng.turn_mode_of(u)])
 	var p: Dictionary = eng.power(u)
 	_kv(status_box, "Energia", "W%d I%d R%d" % [p["warp"], p["imp"], p["apr"]])
 	_kv(status_box, "Batterie", "%.1f / %d" % [u["batt"], int(u["sys"].get("bt", 0))])
@@ -604,7 +604,12 @@ func _on_unit_clicked(uid: int) -> void:
 		return
 	if t["kind"] == "ship":
 		_select(uid)
-		if req.get("type", "") != "fire":
+		if req.get("type", "") == "fire":
+			if int(t["side"]) == int(req["side"]):
+				_close_tmenu()
+				_update_markers()
+				_fire_bar_update()
+		else:
 			_open_ssd(uid)
 
 
@@ -945,9 +950,13 @@ func _move_panel(u: Dictionary) -> void:
 	board.focus_hex(u["pos"])
 	var gh := _move_targets(u)
 	board.set_ghosts(gh)
+	_update_markers()
 	var s := int(req["side"])
 	act_box.add_child(UI.head("Impulso %d - movimento: %s%s" % [eng.imp, D.ship(u["id"])["n"], _who(s)], 24, UI.TAN))
-	var info := "Velocità %d, prua %s, modo di virata %d: hai fatto %d esagoni dritti%s." % [u["speed"], H.DIR_LETTERS[u["face"]], eng.turn_mode_of(u), mini(int(u["straight"]), 99), "" if int(u["straight"]) >= eng.turn_mode_of(u) else " (non puoi ancora virare)"]
+	var tm: int = eng.turn_mode_of(u)
+	var info := "Velocità %d, prua %s, modo di virata %d: %s" % [u["speed"], H.DIR_LETTERS[u["face"]], tm, "puoi virare." if int(u["straight"]) >= tm else "hai fatto %d esagoni dritti su %d, non puoi ancora virare." % [u["straight"], tm]]
+	if not _fire_targets(int(u["uid"])).is_empty():
+		info += " Le frecce indicano i bersagli a tiro di questa nave."
 	act_box.add_child(UI.label(info, 17, UI.MUTED))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
@@ -993,6 +1002,7 @@ func _do_move(m: String) -> void:
 	var uid: int = move_queue.pop_front()
 	move_res[uid] = m
 	board.set_ghosts([])
+	board.set_markers({})
 	_move_next()
 
 
@@ -1078,22 +1088,46 @@ var fire_bar_lbl: Label
 var fire_btn: Button
 
 
-## Bersagli possibili del lato di turno: tid -> [[uid, indice arma], ...]
-func _fire_targets() -> Dictionary:
+## Bersagli possibili della nave selezionata: tid -> [[uid, indice arma], ...]. Solo le armi pronte,
+## con il bersaglio dentro il loro arco e a una distanza in cui possono fare danni.
+func _fire_targets(only := -2) -> Dictionary:
 	var out := {}
-	if req.get("type", "") != "fire":
+	if only == -2:
+		only = selected
+	var u: Dictionary = eng.units.get(only, {})
+	if u.is_empty() or u.get("kind", "") != "ship" or not u["alive"]:
 		return out
-	for u in eng.ships_of(int(req["side"])):
-		if not u["fc"] or u["cloak"] > 0 or u["cloak_t"] > 0:
+	if not u["fc"] or u["cloak"] > 0 or u["cloak_t"] > 0:
+		return out
+	for i in u["weapons"].size():
+		if not eng.weapon_usable(u, i):
 			continue
-		for i in u["weapons"].size():
-			if not eng.weapon_usable(u, i):
+		for tid in eng.targets_for(u, i):
+			if float(_shot_info(u, i, tid)[0]) <= 0.0:
 				continue
-			for tid in eng.targets_for(u, i):
-				if not out.has(tid):
-					out[tid] = []
-				out[tid].append([u["uid"], i])
+			if not out.has(tid):
+				out[tid] = []
+			out[tid].append([u["uid"], i])
 	return out
+
+
+## La prima nave del lato di turno che ha bersagli (se la selezionata non ne ha)
+func _pick_firing_ship(s: int) -> void:
+	var cur: Dictionary = eng.units.get(selected, {})
+	if not cur.is_empty() and int(cur.get("side", -1)) == s and cur["alive"] and not _fire_targets(selected).is_empty():
+		return
+	for u in eng.ships_of(s):
+		if not _fire_targets(int(u["uid"])).is_empty():
+			_select(int(u["uid"]))
+			return
+
+
+func _update_markers() -> void:
+	var mk := {}
+	for tid in _fire_targets():
+		var t: Dictionary = eng.units[tid]
+		mk[tid] = Color(1.0, 0.3, 0.2) if t["kind"] == "ship" else Color(1.0, 0.75, 0.2)
+	board.set_markers(mk)
 
 
 ## Probabilità di colpire (0-1), danni attesi e descrizione breve di un colpo
@@ -1134,14 +1168,11 @@ func _shot_info(u: Dictionary, i: int, tid: int) -> Array:
 
 
 func _fire_panel() -> void:
+	_close_tmenu()
 	_clear_act()
 	var s := int(req["side"])
-	var tg := _fire_targets()
-	var mk := {}
-	for tid in tg:
-		var t: Dictionary = eng.units[tid]
-		mk[tid] = Color(1.0, 0.3, 0.2) if t["kind"] == "ship" else Color(1.0, 0.75, 0.2)
-	board.set_markers(mk)
+	_pick_firing_ship(s)
+	_update_markers()
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 10)
 	act_box.add_child(hb)
@@ -1191,14 +1222,18 @@ func _fire_bar_update() -> void:
 	if not is_instance_valid(fire_bar_lbl):
 		return
 	var n := fire_sel.size()
+	var su: Dictionary = eng.units.get(selected, {})
+	var who := ""
+	if not su.is_empty() and eng.ships_of(int(req.get("side", -1))).size() > 1:
+		who = "Spara: %s (tocca un'altra tua nave per cambiare). " % D.ship(su["id"])["n"]
 	var exp := 0.0
 	for key in fire_sel:
 		var p: PackedStringArray = key.split(":")
 		exp += float(_shot_info(eng.units[int(p[0])], int(p[1]), int(fire_sel[key]))[1])
 	if n == 0:
-		fire_bar_lbl.text = "Tocca una freccia rossa sopra un bersaglio per scegliere le armi."
+		fire_bar_lbl.text = who + ("Tocca una freccia sopra un bersaglio per scegliere le armi." if not _fire_targets().is_empty() else "Questa nave non ha bersagli a tiro.")
 	else:
-		fire_bar_lbl.text = "%d armi pronte a sparare, circa %.0f danni attesi." % [n, exp]
+		fire_bar_lbl.text = who + "%d armi pronte a sparare, circa %.0f danni attesi." % [n, exp]
 	if is_instance_valid(fire_btn):
 		fire_btn.text = ("FUOCO! (%d)" % n) if n > 0 else "FUOCO!"
 		fire_btn.disabled = n == 0
@@ -1238,8 +1273,6 @@ func _open_tmenu(tid: int) -> void:
 	var list: Array = tg[tid]
 	list.sort_custom(func(a, b): return _shot_info(eng.units[a[0]], a[1], tid)[1] > _shot_info(eng.units[b[0]], b[1], tid)[1])
 	var more := {}
-	for e in list:
-		more[e[0]] = true
 	for e in list:
 		var u: Dictionary = eng.units[e[0]]
 		var i: int = e[1]
