@@ -94,6 +94,9 @@ func _build() -> void:
 	var bl := UI.button("Carica una partita", 260, 52, 22, UI.SKY)
 	bl.pressed.connect(_load_panel)
 	row.add_child(bl)
+	var bp := UI.button("Prova: scheda SSD in 3D", 520, 48, 21, UI.PEACH)
+	bp.pressed.connect(func(): main.show_prova())
+	left.add_child(bp)
 
 	# colonna destra: impostazione della battaglia
 	var right := UI.panel(UI.ORANGE, 0.9)

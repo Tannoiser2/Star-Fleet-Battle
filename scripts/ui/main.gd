@@ -65,3 +65,12 @@ func show_rules() -> void:
 	t.main = self
 	add_child(t)
 	current = t
+
+
+func show_prova() -> void:
+	_clear()
+	stars.visible = false
+	var t := preload("res://scripts/ui/prova_ssd3d.gd").new()
+	t.main = self
+	add_child(t)
+	current = t
