@@ -17,8 +17,15 @@ var helper_ai
 
 var top_lbl: Label
 var phase_lbl: Label
-var status_box: VBoxContainer
-var fleet_box: HBoxContainer
+var fleet_box: HFlowContainer
+var left_panel: PanelContainer
+var head_box: VBoxContainer
+var view_box: VBoxContainer
+var mode_btns: Array = []
+var zoom_btn: Button
+var view_mode := 0          # 0 testo, 1 SSD 2D, 2 SSD 3D
+var view_key := ""
+const LEFT_W := [440, 560, 560]
 var log_rich: RichTextLabel
 var act_panel: PanelContainer
 var act_box: VBoxContainer
@@ -148,13 +155,6 @@ func _build_ui() -> void:
 		board.set_top_view(on)
 		b2.text = "VISTA 3D" if on else "VISTA 2D")
 	hb.add_child(b2)
-	var bssd := UI.button("Scheda SSD", 150, 44, 20, UI.SKY)
-	bssd.pressed.connect(func():
-		if is_instance_valid(ssd_win):
-			_close_ssd()
-		elif selected >= 0:
-			_open_ssd(selected))
-	hb.add_child(bssd)
 	var br := UI.button("Regole", 120, 44, 20, UI.BLUE)
 	br.pressed.connect(_show_rules)
 	hb.add_child(br)
@@ -176,24 +176,45 @@ func _build_ui() -> void:
 	bm.pressed.connect(_quit)
 	hb.add_child(bm)
 
-	# pannello sinistro: stato della nave selezionata
-	var left := UI.panel(UI.ORANGE, 0.9)
-	left.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	left.offset_top = 74
-	left.offset_bottom = -10
-	left.offset_left = 8
-	left.offset_right = 438
-	add_child(left)
-	var lsc := ScrollContainer.new()
-	lsc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	left.add_child(lsc)
-	status_box = VBoxContainer.new()
-	status_box.add_theme_constant_override("separation", 6)
-	status_box.custom_minimum_size.x = 380
-	status_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	lsc.add_child(status_box)
+	# pannello sinistro: una scheda per ogni astronave, con tre viste (testo, SSD 2D, SSD 3D)
+	left_panel = UI.panel(UI.ORANGE, 0.9)
+	left_panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	left_panel.offset_top = 74
+	left_panel.offset_bottom = -10
+	left_panel.offset_left = 8
+	left_panel.offset_right = 8 + LEFT_W[0]
+	add_child(left_panel)
+	var lv := VBoxContainer.new()
+	lv.add_theme_constant_override("separation", 6)
+	left_panel.add_child(lv)
+	fleet_box = HFlowContainer.new()
+	fleet_box.add_theme_constant_override("h_separation", 5)
+	fleet_box.add_theme_constant_override("v_separation", 5)
+	lv.add_child(fleet_box)
+	head_box = VBoxContainer.new()
+	head_box.add_theme_constant_override("separation", 2)
+	lv.add_child(head_box)
+	var mr := HBoxContainer.new()
+	mr.add_theme_constant_override("separation", 6)
+	lv.add_child(mr)
+	for i in 3:
+		var bt := UI.button(["Testo", "SSD 2D", "SSD 3D"][i], 96, 38, 17, UI.DIM)
+		bt.pressed.connect(func(): _set_view(i))
+		mr.add_child(bt)
+		mode_btns.append(bt)
+	zoom_btn = UI.button("Ingrandisci", 130, 38, 17, UI.SKY)
+	zoom_btn.pressed.connect(func():
+		if view_mode == 2 and selected >= 0:
+			_open_ssd_window(selected)
+		else:
+			_show_ssd())
+	mr.add_child(zoom_btn)
+	lv.add_child(UI.bar([UI.ORANGE, UI.PEACH, UI.LILAC], 5))
+	view_box = VBoxContainer.new()
+	view_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	lv.add_child(view_box)
 
-	# pannello destro: flotta e registro
+	# pannello destro: diario di bordo
 	var right := UI.panel(UI.LILAC, 0.88)
 	right.set_anchors_preset(Control.PRESET_RIGHT_WIDE)
 	right.offset_top = 74
@@ -204,15 +225,6 @@ func _build_ui() -> void:
 	var rv := VBoxContainer.new()
 	rv.add_theme_constant_override("separation", 8)
 	right.add_child(rv)
-	rv.add_child(UI.head("Flotte", 22, UI.LILAC))
-	var fsc := ScrollContainer.new()
-	fsc.custom_minimum_size = Vector2(340, 150)
-	fsc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	rv.add_child(fsc)
-	fleet_box = HBoxContainer.new()
-	fleet_box.add_theme_constant_override("separation", 6)
-	fsc.add_child(fleet_box)
-	rv.add_child(UI.bar([UI.LILAC, UI.SKY, UI.PEACH], 6))
 	rv.add_child(UI.head("Diario di bordo", 22, UI.LILAC))
 	var sc := ScrollContainer.new()
 	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -235,9 +247,11 @@ func _build_ui() -> void:
 	act_panel.offset_right = 539
 	act_panel.visible = false
 	add_child(act_panel)
+	get_viewport().size_changed.connect(_place_act)
 	act_box = VBoxContainer.new()
 	act_box.add_theme_constant_override("separation", 8)
 	act_panel.add_child(act_box)
+	_set_view(0)
 
 	say_lbl = UI.head("", 26, UI.TAN)
 	say_lbl.set_anchors_preset(Control.PRESET_CENTER_TOP)
@@ -313,43 +327,43 @@ func _select(uid: int) -> void:
 	selected = uid
 	board.select(uid)
 	_refresh_status()
+	_refresh_fleet()
 
 
+const SYS_SHORT := {"fl": "Ponte band.", "em": "Ponte emerg.", "aux": "Contr. ausil.", "lw": "Warp sinistro",
+	"rw": "Warp destro", "cw": "Warp centrale", "imp": "Impulso", "apr": "Reattori aus.", "fh": "Scafo prua",
+	"ah": "Scafo poppa", "ch": "Scafo centr.", "trac": "Raggi traenti", "tr": "Teletrasp."}
+
+
+## Linguette delle astronavi in cima al pannello: una per nave, nel colore del giocatore
 func _refresh_fleet() -> void:
 	for c in fleet_box.get_children():
 		c.queue_free()
 	for s in eng.sides.size():
 		for u in eng.ships_of(s, false):
 			var b := Button.new()
-			b.custom_minimum_size = Vector2(96, 132)
+			b.custom_minimum_size = Vector2(60, 60)
 			b.focus_mode = Control.FOCUS_NONE
 			var col: Color = D.PCOLORS[int(eng.sides[s]["col"]) % 8]
-			var st := UI.box(Color(0, 0, 0, 0.6), col if u["alive"] else UI.DIM, 3 if u["uid"] == selected else 1, 8, 4)
+			var sel: bool = u["uid"] == selected
+			var st := UI.box(Color(0, 0, 0, 0.6) if not sel else col.darkened(0.55), col if u["alive"] else UI.DIM, 4 if sel else 1, 6, 3)
 			b.add_theme_stylebox_override("normal", st)
-			b.add_theme_stylebox_override("hover", UI.box(Color(0.15, 0.12, 0.2), col, 3, 8, 4))
+			b.add_theme_stylebox_override("hover", UI.box(Color(0.15, 0.12, 0.2), col, 3, 6, 3))
 			b.add_theme_stylebox_override("pressed", st)
-			var vb := VBoxContainer.new()
-			vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			vb.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			vb.offset_left = 6
-			vb.offset_right = -6
-			vb.offset_top = 6
-			b.add_child(vb)
+			b.tooltip_text = "%s - %s" % [D.ship(u["id"])["n"], eng.pname(s)]
 			var tr := TextureRect.new()
 			tr.texture = load("res://assets/counters/%s.png" % u["id"])
-			tr.custom_minimum_size = Vector2(84, 84)
 			tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 			tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+			tr.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			tr.offset_left = 6
+			tr.offset_top = 6
+			tr.offset_right = -6
+			tr.offset_bottom = -6
 			tr.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			if not u["alive"]:
 				tr.modulate = Color(0.35, 0.35, 0.35)
-			vb.add_child(tr)
-			var l := UI.mono(str(eng.pname(s)).substr(0, 10) if u["alive"] else u["gone"].substr(0, 10).to_upper(), 14, col if u["alive"] else UI.MUTED)
-			l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			l.clip_text = true
-			l.custom_minimum_size.x = 84
-			l.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			vb.add_child(l)
+			b.add_child(tr)
 			var uid: int = u["uid"]
 			b.pressed.connect(func():
 				_select(uid)
@@ -358,17 +372,43 @@ func _refresh_fleet() -> void:
 			fleet_box.add_child(b)
 
 
+## Cambia la vista della scheda: 0 testo, 1 SSD originale, 2 SSD 3D
+func _set_view(m: int) -> void:
+	view_mode = m
+	view_key = ""
+	for i in mode_btns.size():
+		UI.tint(mode_btns[i], UI.ORANGE if i == m else UI.DIM)
+	zoom_btn.visible = m > 0
+	left_panel.offset_right = 8 + LEFT_W[m]
+	_place_act()
+	_refresh_status()
+
+
+## Il pannello delle azioni si sposta a destra quanto basta a non coprire la scheda
+func _place_act() -> void:
+	if not is_instance_valid(act_panel) or not is_instance_valid(left_panel):
+		return
+	var vw := get_viewport_rect().size.x
+	var ol := maxf(-501.0, left_panel.offset_right + 10.0 - vw * 0.5)
+	ol = minf(ol, vw * 0.5 - 1040.0 - 8.0)
+	act_panel.offset_left = ol
+	act_panel.offset_right = ol + 1040.0
+
+
 func _kv(parent: Control, k: String, v: String, col := UI.TEXT) -> void:
 	var hb := HBoxContainer.new()
-	hb.add_theme_constant_override("separation", 8)
-	var a := UI.label(k, 17, UI.MUTED)
-	a.custom_minimum_size.x = 190
+	hb.add_theme_constant_override("separation", 6)
+	var a := UI.label(k, 15, UI.MUTED)
+	a.custom_minimum_size.x = 82
 	hb.add_child(a)
-	var b := UI.mono(v, 17, col)
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size.x = 150
+	var b := UI.mono(v, 15, col)
+	b.custom_minimum_size.x = 118
 	hb.add_child(b)
 	parent.add_child(hb)
+
+
+func _sect(parent: Control, t: String, col: Color) -> void:
+	parent.add_child(UI.head(t, 18, col))
 
 
 func weapon_state(u: Dictionary, w: Dictionary) -> String:
@@ -381,72 +421,149 @@ func weapon_state(u: Dictionary, w: Dictionary) -> String:
 		if w["fired"]:
 			return "sparato"
 		if w["st"] == 1:
-			return "in carica (1/2)"
+			return "in carica 1/2"
 		if w["st"] == 2:
 			return ("pronto" + (" +%d" % int(w["ov"]) if int(w["ov"]) > 0 else "")) if w["ready"] else "armato"
 		return "scarico"
 	if t == "DISR":
 		if w["fired"]:
 			return "sparato"
-		return ("pronto" + (" sovracc." if int(w["ov"]) > 0 else "")) if w["ready"] else "scarico"
+		return ("pronto" + (" sovr." if int(w["ov"]) > 0 else "")) if w["ready"] else "scarico"
 	if D.is_plasma(t):
 		if w["fired"]:
 			return "lanciato"
 		if w["st"] >= 3:
 			return "pronto" if w["ready"] else "armato"
-		return "in carica (%d/3)" % int(w["st"])
+		return "in carica %d/3" % int(w["st"])
 	if t == "DRN":
 		return "%d droni%s" % [int(w.get("n", 0)), ", lanciato" if w["fired"] else ""]
 	return ""
 
 
 func _refresh_status() -> void:
-	for c in status_box.get_children():
+	if not is_instance_valid(head_box):
+		return
+	for c in head_box.get_children():
 		c.queue_free()
 	var u: Dictionary = eng.units.get(selected, {})
 	if u.is_empty() or u.get("kind", "") != "ship":
-		status_box.add_child(UI.head("Nessuna nave selezionata", 22))
+		head_box.add_child(UI.head("Scegli una nave", 22))
+		_clear_view()
 		return
 	var d: Dictionary = D.ship(u["id"])
 	var col: Color = D.PCOLORS[int(eng.sides[u["side"]]["col"]) % 8]
-	status_box.add_child(UI.head(str(d["n"]), 26, UI.ORANGE))
-	status_box.add_child(UI.label("%s  -  %s" % [D.RACES[d["r"]]["nome"], eng.pname(u["side"])], 18, col))
-	status_box.add_child(UI.bar([UI.ORANGE, UI.PEACH, UI.LILAC], 6))
-	if not u["alive"]:
-		status_box.add_child(UI.head("Nave " + str(u["gone"]), 24, UI.RED))
+	var t := UI.head(str(d["n"]), 24, UI.ORANGE)
+	t.clip_text = true
+	t.custom_minimum_size.x = 300
+	head_box.add_child(t)
+	head_box.add_child(UI.label("%s  -  %s" % [D.RACES[d["r"]]["nome"], eng.pname(u["side"])], 16, col))
+	var key := "%d:%d" % [selected, view_mode]
+	if view_mode == 0:
+		_clear_view()
+		view_key = key
+		_text_view(u, d)
 		return
-	_kv(status_box, "Posizione", "%s  prua %s" % [H.label(u["pos"]), H.DIR_LETTERS[u["face"]]])
-	_kv(status_box, "Velocità", "%d (modo di virata %d)" % [u["speed"], eng.turn_mode_of(u)])
-	var p: Dictionary = eng.power(u)
-	_kv(status_box, "Energia", "W%d I%d R%d" % [p["warp"], p["imp"], p["apr"]])
-	_kv(status_box, "Batterie", "%.1f / %d" % [u["batt"], int(u["sys"].get("bt", 0))])
-	_kv(status_box, "Condensatori phaser", "%.1f / %.1f" % [u["cap"], eng.cap_max(u)])
-	_kv(status_box, "Sensori / Scanner", "%d  /  +%d" % [eng._track(u, "sen"), eng._track(u, "scan")], UI.TEXT if u["lock"] else UI.RED)
-	_kv(status_box, "Aggancio", "sì" if u["lock"] else "no (gittate doppie)")
-	if d.has("cloak"):
-		_kv(status_box, "Occultamento", ("attivo" if u["cloak"] > 0 else "spento") + (" (in dissolvenza)" if u["cloak_t"] > 0 else ""))
-	_kv(status_box, "Danni in eccesso", "%d / %d" % [u["ex"], u["ex_max"]], UI.RED if int(u["ex"]) > 0 else UI.TEXT)
-	status_box.add_child(UI.head("Scudi", 21, UI.SKY))
+	if key == view_key:
+		return
+	_clear_view()
+	view_key = key
+	if view_mode == 1:
+		_ssd2d_view(u)
+	else:
+		if SSD3D.has_data(u["id"]):
+			var svc: SubViewportContainer = SSD3D.window(eng, selected)
+			svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			svc.custom_minimum_size = Vector2(LEFT_W[2] - 40, 300)
+			view_box.add_child(svc)
+			view_box.add_child(UI.label("Trascina, rotella o due dita: zoom e rotazione.", 14, UI.MUTED))
+		else:
+			view_box.add_child(UI.label("Scheda 3D non disponibile per questa nave.", 16, UI.MUTED))
+
+
+func _clear_view() -> void:
+	view_key = ""
+	for c in view_box.get_children():
+		view_box.remove_child(c)
+		c.queue_free()
+
+
+## Scheda SSD originale nel pannello, larga quanto il pannello e scorrevole in verticale
+func _ssd2d_view(u: Dictionary) -> void:
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	view_box.add_child(sc)
+	var tr := TextureRect.new()
+	tr.texture = load("res://assets/ssd/%s.png" % u["id"])
+	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
+	var w := float(LEFT_W[1] - 44)
+	tr.custom_minimum_size = Vector2(w, w * float(tr.texture.get_height()) / float(tr.texture.get_width()))
+	sc.add_child(tr)
+
+
+## Stato a testo, compatto su due colonne per stare tutto nel pannello senza scorrere
+func _text_view(u: Dictionary, d: Dictionary) -> void:
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	view_box.add_child(sc)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 3)
+	sc.add_child(tv)
+	if not u["alive"]:
+		tv.add_child(UI.head("Nave " + str(u["gone"]), 22, UI.RED))
+		return
 	var g := GridContainer.new()
-	g.columns = 3
-	g.add_theme_constant_override("h_separation", 14)
+	g.columns = 2
+	g.add_theme_constant_override("h_separation", 10)
+	g.add_theme_constant_override("v_separation", 1)
+	tv.add_child(g)
+	var p: Dictionary = eng.power(u)
+	_kv(g, "Posizione", "%s prua %s" % [H.label(u["pos"]), H.DIR_LETTERS[u["face"]]])
+	_kv(g, "Velocità", "%d virata %d" % [u["speed"], eng.turn_mode_of(u)])
+	_kv(g, "Energia", "W%d I%d R%d" % [p["warp"], p["imp"], p["apr"]])
+	_kv(g, "Batterie", "%.1f / %d" % [u["batt"], int(u["sys"].get("bt", 0))])
+	_kv(g, "Condens.", "%.1f / %.1f" % [u["cap"], eng.cap_max(u)])
+	_kv(g, "Sensori", "%d  scan +%d" % [eng._track(u, "sen"), eng._track(u, "scan")], UI.TEXT if u["lock"] else UI.RED)
+	_kv(g, "Aggancio", "sì" if u["lock"] else "no", UI.TEXT if u["lock"] else UI.RED)
+	_kv(g, "Danni ecc.", "%d / %d" % [u["ex"], u["ex_max"]], UI.RED if int(u["ex"]) > 0 else UI.TEXT)
+	if d.has("cloak"):
+		_kv(g, "Occultam.", ("attivo" if u["cloak"] > 0 else "spento") + (" ..." if u["cloak_t"] > 0 else ""))
+	if int(u["shuttles"]) > 0 or int(u["fighters"]) > 0:
+		_kv(g, "Navette", "%d  caccia %d" % [u["shuttles"], u["fighters"]])
+	# scudi
+	_sect(tv, "Scudi" + ("  (spenti)" if not u["sh_on"] else "") + ("  rinforzo gen. %d" % int(u["gr"]) if int(u["gr"]) > 0 else ""), UI.SKY)
+	var gs := GridContainer.new()
+	gs.columns = 3
+	gs.add_theme_constant_override("h_separation", 12)
+	gs.add_theme_constant_override("v_separation", 0)
 	for i in 6:
 		var txt := "#%d %d/%d" % [i + 1, u["sh"][i], u["sh_max"][i]]
 		if int(u["sr"][i]) > 0:
 			txt += "+%d" % int(u["sr"][i])
 		var f := float(u["sh"][i]) / maxf(1.0, float(u["sh_max"][i]))
-		var l := UI.mono(txt, 17, (board.shield_color(f).lightened(0.3) if f <= 0.5 else Color(0.6, 0.8, 1.0)) if u["sh_on"] else UI.MUTED)
-		l.custom_minimum_size.x = 112
-		g.add_child(l)
-	status_box.add_child(g)
-	if int(u["gr"]) > 0:
-		status_box.add_child(UI.mono("Rinforzo generale: %d" % u["gr"], 16, UI.SKY))
-	if not u["sh_on"]:
-		status_box.add_child(UI.label("Scudi spenti", 17, UI.RED))
-	status_box.add_child(UI.head("Armi", 21, UI.TAN))
-	for i in u["weapons"].size():
-		var w: Dictionary = u["weapons"][i]
+		var l := UI.mono(txt, 15, (board.shield_color(f).lightened(0.3) if f <= 0.5 else Color(0.6, 0.8, 1.0)) if u["sh_on"] else UI.MUTED)
+		l.custom_minimum_size.x = 122
+		gs.add_child(l)
+	tv.add_child(gs)
+	# armi: quelle uguali (tipo, arco e stato) raggruppate
+	_sect(tv, "Armi", UI.TAN)
+	var groups := []
+	for w in u["weapons"]:
 		var st := weapon_state(u, w)
+		var k: String = "%s|%s|%s" % [w["t"], w["arc"], st]
+		if not groups.is_empty() and groups[-1][0] == k:
+			groups[-1][1] += 1
+		else:
+			groups.append([k, 1, w, st])
+	var gw := GridContainer.new()
+	gw.columns = 2
+	gw.add_theme_constant_override("h_separation", 10)
+	gw.add_theme_constant_override("v_separation", 0)
+	for gr in groups:
+		var w: Dictionary = gr[2]
+		var st: String = gr[3]
 		var cc := UI.TEXT
 		if st.begins_with("pronto"):
 			cc = UI.GREEN
@@ -455,29 +572,36 @@ func _refresh_status() -> void:
 		elif st == "sparato" or st == "lanciato":
 			cc = UI.MUTED
 		var hb := HBoxContainer.new()
-		var a := UI.mono("%-6s %-3s" % [D.WSHORT[w["t"]], w["arc"]], 16, UI.PEACH)
-		a.custom_minimum_size.x = 130
+		hb.add_theme_constant_override("separation", 4)
+		var a := UI.mono("%s%s %s" % ["%dx " % gr[1] if gr[1] > 1 else "", D.WSHORT[w["t"]], w["arc"]], 14, UI.PEACH)
+		a.custom_minimum_size.x = 104
 		hb.add_child(a)
-		var b := UI.label(st, 16, cc)
-		b.custom_minimum_size.x = 200
+		var b := UI.label(st, 14, cc)
+		b.custom_minimum_size.x = 96
 		hb.add_child(b)
-		status_box.add_child(hb)
-	if int(u["shuttles"]) > 0 or int(u["fighters"]) > 0:
-		status_box.add_child(UI.label("Navette: %d   Caccia: %d" % [u["shuttles"], u["fighters"]], 16, UI.TEXT))
-	status_box.add_child(UI.head("Sistemi", 21, UI.LILAC))
+		gw.add_child(hb)
+	tv.add_child(gw)
+	# sistemi
+	_sect(tv, "Sistemi", UI.LILAC)
 	var g2 := GridContainer.new()
-	g2.columns = 1
-	g2.add_theme_constant_override("h_separation", 12)
+	g2.columns = 2
+	g2.add_theme_constant_override("h_separation", 10)
+	g2.add_theme_constant_override("v_separation", 0)
 	for k in D.SYS_ORDER:
 		if not u["max"].has(k) or int(u["max"][k]) == 0:
 			continue
 		var cur := int(u["sys"][k])
 		var mx := int(u["max"][k])
-		var l2 := UI.label("%s %d/%d" % [D.SYS_NAMES[k], cur, mx], 15, UI.TEXT if cur == mx else (UI.RED if cur == 0 else UI.TAN))
-		l2.custom_minimum_size.x = 360
-		l2.clip_text = true
-		g2.add_child(l2)
-	status_box.add_child(g2)
+		var hb2 := HBoxContainer.new()
+		hb2.add_theme_constant_override("separation", 4)
+		var n := UI.label(SYS_SHORT.get(k, D.SYS_NAMES[k]), 14, UI.MUTED)
+		n.custom_minimum_size.x = 120
+		hb2.add_child(n)
+		var v := UI.mono("%d/%d" % [cur, mx], 14, UI.TEXT if cur == mx else (UI.RED if cur == 0 else UI.TAN))
+		v.custom_minimum_size.x = 76
+		hb2.add_child(v)
+		g2.add_child(hb2)
+	tv.add_child(g2)
 
 
 # ================================================================ scheda SSD originale
@@ -543,6 +667,12 @@ func _show_ssd() -> void:
 ## Finestra della scheda: in 3D (cubetti e scudi a strati) per le navi che ce l'hanno, altrimenti
 ## la scheda originale piatta. Non blocca la partita e segue i danni in tempo reale.
 func _open_ssd(uid: int) -> void:
+	if eng.units.get(uid, {}).get("kind", "") == "ship" and selected != uid:
+		_select(uid)
+
+
+## Finestra grande della scheda 3D (dal tasto "Ingrandisci" del pannello)
+func _open_ssd_window(uid: int) -> void:
 	var u: Dictionary = eng.units.get(uid, {})
 	if u.is_empty() or u.get("kind", "") != "ship":
 		return

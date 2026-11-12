@@ -484,6 +484,12 @@ func _update_cam() -> void:
 
 func _process(dt: float) -> void:
 	_t += dt
+	# finestra stretta (pannello laterale): si inquadra in larghezza, così la scheda resta intera
+	var vs := get_viewport().get_visible_rect().size
+	if vs.y > 0 and is_instance_valid(cam):
+		var narrow := vs.x < vs.y * 1.6
+		cam.keep_aspect = Camera3D.KEEP_WIDTH if narrow else Camera3D.KEEP_HEIGHT
+		cam.fov = 69.0 if narrow else 42.0
 	if is_instance_valid(ship):
 		ship.rotation.y = sin(_t * 0.3) * 0.25
 		ship.position.y = ship_pos.y + sin(_t * 0.9) * 0.12
