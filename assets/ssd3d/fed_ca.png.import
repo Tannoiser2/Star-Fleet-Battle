@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://by0tp0mbuj5c1"
-path="res://.godot/imported/fed_ca_ssd.png-864205b313403822e09baf34f4a4b3cd.ctex"
+uid="uid://d0rvlrq2ejqc1"
+path="res://.godot/imported/fed_ca.png-855fdf96dc57c56a14172462381f9f74.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://assets/prova/fed_ca_ssd.png"
-dest_files=["res://.godot/imported/fed_ca_ssd.png-864205b313403822e09baf34f4a4b3cd.ctex"]
+source_file="res://assets/ssd3d/fed_ca.png"
+dest_files=["res://.godot/imported/fed_ca.png-855fdf96dc57c56a14172462381f9f74.ctex"]
 
 [params]
 

@@ -6,6 +6,7 @@ var net: Net
 var lobby := {}
 var menu_state := {}
 var stars: Control
+var prova_ship := "kli_b10"
 
 
 func get_net() -> Net:
@@ -72,5 +73,6 @@ func show_prova() -> void:
 	stars.visible = false
 	var t := preload("res://scripts/ui/prova_ssd3d.gd").new()
 	t.main = self
+	t.ship_id = prova_ship
 	add_child(t)
 	current = t

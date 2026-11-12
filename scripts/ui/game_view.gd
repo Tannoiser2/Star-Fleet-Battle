@@ -25,6 +25,8 @@ var act_box: VBoxContainer
 var say_lbl: Label
 var wait_lbl: Label
 var ssd_overlay: Control
+var ssd_win: Control
+var ssd_win_uid := -1
 
 var selected := -1
 var req := {}
@@ -146,7 +148,11 @@ func _build_ui() -> void:
 		b2.text = "VISTA 3D" if on else "VISTA 2D")
 	hb.add_child(b2)
 	var bssd := UI.button("Scheda SSD", 150, 44, 20, UI.SKY)
-	bssd.pressed.connect(_show_ssd)
+	bssd.pressed.connect(func():
+		if is_instance_valid(ssd_win):
+			_close_ssd()
+		elif selected >= 0:
+			_open_ssd(selected))
 	hb.add_child(bssd)
 	var br := UI.button("Regole", 120, 44, 20, UI.BLUE)
 	br.pressed.connect(_show_rules)
@@ -523,6 +529,61 @@ func _show_ssd() -> void:
 	vb.add_child(sc)
 
 
+## Finestra della scheda: in 3D (cubetti e scudi a strati) per le navi che ce l'hanno, altrimenti
+## la scheda originale piatta. Non blocca la partita e segue i danni in tempo reale.
+func _open_ssd(uid: int) -> void:
+	var u: Dictionary = eng.units.get(uid, {})
+	if u.is_empty() or u.get("kind", "") != "ship":
+		return
+	if not SSD3D.has_data(u["id"]):
+		if not is_instance_valid(ssd_overlay):
+			_show_ssd()
+		return
+	if is_instance_valid(ssd_win) and ssd_win_uid == uid:
+		return
+	_close_ssd()
+	ssd_win_uid = uid
+	ssd_win = UI.panel(UI.SKY, 0.97)
+	ssd_win.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	ssd_win.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	ssd_win.offset_left = -470
+	ssd_win.offset_right = 510
+	ssd_win.offset_top = 78
+	ssd_win.custom_minimum_size = Vector2(980, 600)
+	add_child(ssd_win)
+	move_child(ssd_win, act_panel.get_index())
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	ssd_win.add_child(vb)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	vb.add_child(hb)
+	var col: Color = D.PCOLORS[int(eng.sides[u["side"]]["col"]) % 8]
+	var t := UI.head("%s - %s" % [D.ship(u["id"])["n"], eng.pname(u["side"])], 24, col)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	t.clip_text = true
+	t.custom_minimum_size.x = 400
+	hb.add_child(t)
+	var b2 := UI.button("Scheda originale", 210, 42, 18, UI.LILAC)
+	b2.pressed.connect(_show_ssd)
+	hb.add_child(b2)
+	var bc := UI.button("Chiudi", 120, 42, 18, UI.RUST)
+	bc.pressed.connect(_close_ssd)
+	hb.add_child(bc)
+	var svc: SubViewportContainer = SSD3D.window(eng, uid)
+	svc.custom_minimum_size = Vector2(940, 520)
+	svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vb.add_child(svc)
+	vb.add_child(UI.label("Trascina per spostare, rotella o due dita per lo zoom e la rotazione.", 15, UI.MUTED))
+
+
+func _close_ssd() -> void:
+	if is_instance_valid(ssd_win):
+		ssd_win.queue_free()
+	ssd_win = null
+	ssd_win_uid = -1
+
+
 func _show_rules() -> void:
 	var rv = preload("res://scripts/ui/rules_view.gd").new()
 	rv.overlay = true
@@ -542,6 +603,8 @@ func _on_unit_clicked(uid: int) -> void:
 		_select(uid)
 		if req.get("type", "") == "fire":
 			_fire_panel()
+		else:
+			_open_ssd(uid)
 
 
 func _on_hex_clicked(h: Vector2i) -> void:
