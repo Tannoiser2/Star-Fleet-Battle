@@ -1,0 +1,33 @@
+extends RefCounted
+## Scenari pronti. Ogni lato: nome, squadra e navi (codici di data/navi.json).
+## Le posizioni di partenza le calcola il menu (lati disposti attorno alla mappa).
+
+const LIST := [
+	{"id": "duello", "nome": "Il duello classico",
+		"desc": "Lo scontro di base di Star Fleet Battles (SG1.0): l'incrociatore pesante della Federazione contro l'incrociatore da battaglia D7 klingon. Fotoni contro disgregatori e droni.",
+		"turni": 10, "lati": [{"nome": "Federazione", "navi": ["fed_ca"]}, {"nome": "Klingon", "navi": ["kli_d7"]}]},
+	{"id": "zona_neutrale", "nome": "Zona Neutrale",
+		"desc": "Un incrociatore romulano KR sbuca dall'occultamento davanti a due unità di pattuglia della Federazione. I siluri al plasma contro la velocità.",
+		"turni": 10, "lati": [{"nome": "Federazione", "navi": ["fed_ncl", "fed_dd"]}, {"nome": "Romulani", "navi": ["rom_kr", "rom_k5r"]}]},
+	{"id": "artigli", "nome": "Gli artigli dei Kzinti",
+		"desc": "Sul confine klingon un incrociatore d'attacco e una fregata kzinti sfidano un D6: sciami di droni contro i disgregatori.",
+		"turni": 10, "lati": [{"nome": "Kzinti", "navi": ["kzi_cs", "kzi_ff"]}, {"nome": "Klingon", "navi": ["kli_d6", "kli_f5"]}]},
+	{"id": "gorn", "nome": "Lucertole e uccelli rapaci",
+		"desc": "Due flotte armate di plasma: l'incrociatore da battaglia gorn contro lo Sparrowhawk romulano, ognuno con la sua scorta.",
+		"turni": 10, "lati": [{"nome": "Gorn", "navi": ["gor_bc", "gor_dd"]}, {"nome": "Romulani", "navi": ["rom_spa", "rom_ska"]}]},
+	{"id": "pirati", "nome": "Pirati di Orione",
+		"desc": "Un convoglio è stato attaccato: un incrociatore leggero della Federazione e una fregata accorrono contro due corsari orioni capaci di occultarsi.",
+		"turni": 10, "lati": [{"nome": "Federazione", "navi": ["fed_ncl", "fed_ff"]}, {"nome": "Orioni", "navi": ["ori_cr", "ori_lr"]}]},
+	{"id": "ragnatela", "nome": "Il confine tholiano",
+		"desc": "Un incrociatore da guerra tholiano e la sua corvetta difendono lo spazio dell'Assemblea da un incrociatore D5 e una scorta klingon.",
+		"turni": 10, "lati": [{"nome": "Tholiani", "navi": ["tho_cw", "tho_pc"]}, {"nome": "Klingon", "navi": ["kli_d5", "kli_e4"]}]},
+	{"id": "corazzate", "nome": "Scontro di corazzate",
+		"desc": "La grande battaglia: la corazzata della Federazione con la sua scorta contro la corazzata C9 klingon con una portaerei.",
+		"turni": 12, "lati": [{"nome": "Federazione", "navi": ["fed_dn", "fed_cc"]}, {"nome": "Klingon", "navi": ["kli_c9", "kli_d6v"]}]},
+	{"id": "mischia", "nome": "Mischia a quattro",
+		"desc": "Tutti contro tutti: Federazione, Klingon, Romulani e Gorn si contendono lo stesso settore.",
+		"turni": 10, "lati": [{"nome": "Federazione", "navi": ["fed_ca"]}, {"nome": "Klingon", "navi": ["kli_d7"]}, {"nome": "Romulani", "navi": ["rom_kr"]}, {"nome": "Gorn", "navi": ["gor_bc"]}]},
+	{"id": "libera", "nome": "Battaglia libera",
+		"desc": "Componi tu le flotte: da 2 a 8 giocatori, 43 astronavi di sette razze, squadre a piacere.",
+		"turni": 10, "lati": [{"nome": "Giocatore 1", "navi": ["fed_ca"]}, {"nome": "Giocatore 2", "navi": ["kli_d7"]}]},
+]
