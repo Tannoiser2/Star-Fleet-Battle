@@ -57,6 +57,7 @@ func start_game(config: Dictionary) -> void:
 	_clear()
 	stars.visible = false
 	audio.play_battle()
+	audio.fx("allarme", -4.0)
 	var g := preload("res://scripts/ui/game_view.gd").new()
 	g.main = self
 	g.config = config

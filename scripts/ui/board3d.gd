@@ -940,7 +940,7 @@ func _on_fx(kind: String, d: Dictionary) -> void:
 			var w0 := str(d["w"])
 			_sfx("phaser" if w0.begins_with("PH") else ("fotone" if w0 == "FOTON" else "disgregatore"), -3.0)
 		"impact":
-			_sfx("esplosione" if d.get("kind", "") == "plasma" else "drone")
+			_sfx("esplosione", 0.0 if d.get("kind", "") == "plasma" else -4.0)
 		"boom":
 			_sfx("esplosione", 3.0)
 		"shield":

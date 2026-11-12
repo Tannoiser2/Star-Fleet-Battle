@@ -44,6 +44,7 @@ var _mat_cache := {}
 var _stm: StandardMaterial3D
 var _dead := false
 var animate := true
+var part := "all"         # "all" scheda e nave, "ship" solo nave con gli scudi, "card" solo la scheda
 
 
 static func has_data(id: String) -> bool:
@@ -51,7 +52,7 @@ static func has_data(id: String) -> bool:
 
 
 ## Finestra pronta da mettere nell'interfaccia: SubViewportContainer con la scheda 3D
-static func window(e, u_id: int) -> SubViewportContainer:
+static func window(e, u_id: int, what := "all") -> SubViewportContainer:
 	var svc := SubViewportContainer.new()
 	svc.stretch = true
 	svc.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -62,6 +63,7 @@ static func window(e, u_id: int) -> SubViewportContainer:
 	svc.add_child(sv)
 	var s = load("res://scripts/ui/ssd3d.gd").new()
 	s.name = "scheda"
+	s.part = what
 	sv.add_child(s)
 	s.setup(e, u_id)
 	return svc
@@ -80,9 +82,20 @@ func setup(e, u_id: int) -> void:
 	target = Vector3((w * 0.5 + 3.2) * 0.42, 0.6, h * 0.04)
 	dist = (w + 6.4) * 0.92 + 1.0
 	pitch = -0.92
+	if part == "ship":
+		ship_pos = Vector3.ZERO
+		target = Vector3(0, 0.0, 0)
+		dist = 9.5
+		pitch = -0.62
+	elif part == "card":
+		target = Vector3(0, 0, 0.1)
+		dist = maxf(w * 0.85, h * 0.98) + 0.6
+		pitch = -1.32
 	_build_env()
-	_build_card(u)
-	_build_ship(u)
+	if part != "ship":
+		_build_card(u)
+	if part != "card":
+		_build_ship(u)
 	animate = false
 	sync()
 	animate = true
@@ -346,7 +359,10 @@ func sync() -> void:
 			if arr2[idx2] != null:
 				_kill(arr2[idx2], 0.0, Color(0.4, 0.75, 1.0))
 				arr2[idx2] = null
+	_weapon_colors(u)
 	for i in 6:
+		if not layers.has(i):
+			continue
 		var arr3: Array = layers[i]
 		var keep := arr3.size() - _lost(arr3.size(), int(u["sh"][i]), int(u["sh_max"][i]))
 		# sotto il 20% lo scudo diventa rosso, sotto metà giallo
@@ -365,9 +381,59 @@ func sync() -> void:
 			if arr3[j] != null:
 				_pop_layer(arr3[j])
 				arr3[j] = null
-	if not u["alive"] and u["gone"] == "distrutta":
+	if not u["alive"] and u["gone"] == "distrutta" and is_instance_valid(ship):
 		_dead = true
 		_boom(delay + 0.3)
+
+
+## Caselle delle armi colorate secondo lo stato: rosso sparata, verde pronta, grigio scarica
+const W_FIRED := Color(1.0, 0.22, 0.16)
+const W_READY := Color(0.25, 0.95, 0.35)
+const W_IDLE := Color(0.42, 0.43, 0.48)
+
+
+static func weapon_color(u: Dictionary, w: Dictionary) -> Color:
+	var t: String = w["t"]
+	if w["fired"]:
+		return W_FIRED
+	var ready := false
+	if D.is_phaser(t):
+		ready = float(u["cap"]) >= D.phaser_cost(t)
+	elif t == "PHOT":
+		ready = int(w["st"]) == 2 and w["ready"]
+	elif t == "DISR":
+		ready = w["ready"]
+	elif D.is_plasma(t):
+		ready = int(w["st"]) >= 3 and w["ready"]
+	elif t == "DRN":
+		ready = int(w.get("n", 0)) > 0
+	return W_READY if ready else W_IDLE
+
+
+## Colore di ogni casella d'arma del tipo t (le armi distrutte sono le ultime caselle, già esplose)
+static func weapon_box_colors(u: Dictionary, t: String, n_boxes: int) -> Array:
+	var sts := []
+	for w in u["weapons"]:
+		if w["t"] == t and w["ok"]:
+			sts.append(weapon_color(u, w))
+	var out := []
+	var tot := 0
+	for w in u["weapons"]:
+		if w["t"] == t:
+			tot += 1
+	for i in n_boxes:
+		var k := int(float(i) * float(tot) / float(maxi(1, n_boxes)))
+		out.append(sts[k] if k < sts.size() else null)
+	return out
+
+
+func _weapon_colors(u: Dictionary) -> void:
+	for t in weap_cubes:
+		var arr: Array = weap_cubes[t]
+		var cols := weapon_box_colors(u, t, arr.size())
+		for i in arr.size():
+			if arr[i] != null and cols[i] != null:
+				arr[i].material_override = _cube_mat(cols[i])
 
 
 func _kill(c: MeshInstance3D, delay: float, col = null) -> void:
@@ -434,6 +500,8 @@ func _pop_layer(lay: MeshInstance3D) -> void:
 
 ## Raggio di un colpo sullo scudo i (solo effetto)
 func beam(shi: int) -> void:
+	if not is_instance_valid(ship):
+		return
 	var a := deg_to_rad(shi * 60.0)
 	var dir := Vector3(sin(a), 0.25, -cos(a)).normalized()
 	var to := ship.position + dir * 2.4

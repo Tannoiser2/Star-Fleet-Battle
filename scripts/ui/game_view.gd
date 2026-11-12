@@ -25,7 +25,7 @@ var mode_btns: Array = []
 var zoom_btn: Button
 var view_mode := 0          # 0 testo, 1 SSD 2D, 2 SSD 3D
 var view_key := ""
-const LEFT_W := [440, 560, 560]
+const LEFT_W := [440, 500, 560]
 var log_rich: RichTextLabel
 var act_panel: PanelContainer
 var act_box: VBoxContainer
@@ -457,6 +457,8 @@ func _refresh_status() -> void:
 	t.custom_minimum_size.x = 300
 	head_box.add_child(t)
 	head_box.add_child(UI.label("%s  -  %s" % [D.RACES[d["r"]]["nome"], eng.pname(u["side"])], 16, col))
+	# dati principali: in tutte e tre le viste
+	_info_grid(u, d)
 	var key := "%d:%d" % [selected, view_mode]
 	if view_mode == 0:
 		_clear_view()
@@ -467,17 +469,45 @@ func _refresh_status() -> void:
 		return
 	_clear_view()
 	view_key = key
+	if not u["alive"] or not SSD3D.has_data(u["id"]):
+		view_box.add_child(UI.label("Scheda non disponibile per questa nave." if u["alive"] else "Nave " + str(u["gone"]), 16, UI.MUTED))
+		return
 	if view_mode == 1:
-		_ssd2d_view(u)
+		var s2 := SSD2D.new()
+		s2.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		s2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		s2.custom_minimum_size = Vector2(200, 300)
+		view_box.add_child(s2)
+		s2.setup(eng, selected)
+		view_box.add_child(_legend())
 	else:
-		if SSD3D.has_data(u["id"]):
-			var svc: SubViewportContainer = SSD3D.window(eng, selected)
-			svc.size_flags_vertical = Control.SIZE_EXPAND_FILL
-			svc.custom_minimum_size = Vector2(LEFT_W[2] - 40, 300)
-			view_box.add_child(svc)
-			view_box.add_child(UI.label("Trascina, rotella o due dita: zoom e rotazione.", 14, UI.MUTED))
-		else:
-			view_box.add_child(UI.label("Scheda 3D non disponibile per questa nave.", 16, UI.MUTED))
+		view_box.add_child(UI.head("Scudi", 18, UI.SKY))
+		var sv1: SubViewportContainer = SSD3D.window(eng, selected, "ship")
+		sv1.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sv1.size_flags_stretch_ratio = 0.62
+		sv1.custom_minimum_size = Vector2(200, 150)
+		view_box.add_child(sv1)
+		view_box.add_child(UI.head("Armi e sistemi", 18, UI.TAN))
+		var sv2: SubViewportContainer = SSD3D.window(eng, selected, "card")
+		sv2.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		sv2.custom_minimum_size = Vector2(200, 250)
+		view_box.add_child(sv2)
+		view_box.add_child(_legend())
+
+
+func _legend() -> Control:
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 6)
+	for it in [[SSD3D.W_FIRED, "sparata"], [SSD3D.W_READY, "pronta"], [SSD3D.W_IDLE, "scarica"]]:
+		var c := ColorRect.new()
+		c.color = it[0]
+		c.custom_minimum_size = Vector2(16, 16)
+		c.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		hb.add_child(c)
+		var l := UI.label(it[1], 14, UI.MUTED)
+		l.custom_minimum_size.x = 64
+		hb.add_child(l)
+	return hb
 
 
 func _clear_view() -> void:
@@ -487,38 +517,15 @@ func _clear_view() -> void:
 		c.queue_free()
 
 
-## Scheda SSD originale nel pannello, larga quanto il pannello e scorrevole in verticale
-func _ssd2d_view(u: Dictionary) -> void:
-	var sc := ScrollContainer.new()
-	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	view_box.add_child(sc)
-	var tr := TextureRect.new()
-	tr.texture = load("res://assets/ssd/%s.png" % u["id"])
-	tr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	tr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT
-	var w := float(LEFT_W[1] - 44)
-	tr.custom_minimum_size = Vector2(w, w * float(tr.texture.get_height()) / float(tr.texture.get_width()))
-	sc.add_child(tr)
-
-
-## Stato a testo, compatto su due colonne per stare tutto nel pannello senza scorrere
-func _text_view(u: Dictionary, d: Dictionary) -> void:
-	var sc := ScrollContainer.new()
-	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	view_box.add_child(sc)
-	var tv := VBoxContainer.new()
-	tv.add_theme_constant_override("separation", 3)
-	sc.add_child(tv)
+func _info_grid(u: Dictionary, d: Dictionary) -> void:
 	if not u["alive"]:
-		tv.add_child(UI.head("Nave " + str(u["gone"]), 22, UI.RED))
+		head_box.add_child(UI.head("Nave " + str(u["gone"]), 20, UI.RED))
 		return
 	var g := GridContainer.new()
 	g.columns = 2
 	g.add_theme_constant_override("h_separation", 10)
 	g.add_theme_constant_override("v_separation", 1)
-	tv.add_child(g)
+	head_box.add_child(g)
 	var p: Dictionary = eng.power(u)
 	_kv(g, "Posizione", "%s prua %s" % [H.label(u["pos"]), H.DIR_LETTERS[u["face"]]])
 	_kv(g, "Velocità", "%d virata %d" % [u["speed"], eng.turn_mode_of(u)])
@@ -532,6 +539,18 @@ func _text_view(u: Dictionary, d: Dictionary) -> void:
 		_kv(g, "Occultam.", ("attivo" if u["cloak"] > 0 else "spento") + (" ..." if u["cloak_t"] > 0 else ""))
 	if int(u["shuttles"]) > 0 or int(u["fighters"]) > 0:
 		_kv(g, "Navette", "%d  caccia %d" % [u["shuttles"], u["fighters"]])
+
+
+func _text_view(u: Dictionary, d: Dictionary) -> void:
+	if not u["alive"]:
+		return
+	var sc := ScrollContainer.new()
+	sc.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	view_box.add_child(sc)
+	var tv := VBoxContainer.new()
+	tv.add_theme_constant_override("separation", 3)
+	sc.add_child(tv)
 	# scudi
 	_sect(tv, "Scudi" + ("  (spenti)" if not u["sh_on"] else "") + ("  rinforzo gen. %d" % int(u["gr"]) if int(u["gr"]) > 0 else ""), UI.SKY)
 	var gs := GridContainer.new()
