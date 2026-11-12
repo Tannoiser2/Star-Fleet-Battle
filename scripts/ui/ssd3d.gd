@@ -44,7 +44,8 @@ var _mat_cache := {}
 var _stm: StandardMaterial3D
 var _dead := false
 var animate := true
-var part := "all"         # "all" scheda e nave, "ship" solo nave con gli scudi, "card" solo la scheda
+var part := "all"
+var auto_fit := true      # la scheda si adatta alla finestra finché non si zooma a mano         # "all" scheda e nave, "ship" solo nave con gli scudi, "card" solo la scheda
 
 
 static func has_data(id: String) -> bool:
@@ -85,7 +86,7 @@ func setup(e, u_id: int) -> void:
 	if part == "ship":
 		ship_pos = Vector3.ZERO
 		target = Vector3(0, 0.0, 0)
-		dist = 9.5
+		dist = 7.0
 		pitch = -0.62
 	elif part == "card":
 		target = Vector3(0, 0, 0.1)
@@ -558,6 +559,12 @@ func _process(dt: float) -> void:
 		var narrow := vs.x < vs.y * 1.6
 		cam.keep_aspect = Camera3D.KEEP_WIDTH if narrow else Camera3D.KEEP_HEIGHT
 		cam.fov = 69.0 if narrow else 42.0
+		if part == "card" and auto_fit and narrow:
+			# inquadra la scheda intera: larghezza e altezza secondo le proporzioni della finestra
+			var tw := tan(deg_to_rad(34.5))
+			var cw := float(data["w"]) * PX
+			var ch := float(data["h"]) * PX
+			dist = maxf(cw * 0.5 / tw, ch * 0.5 / (tw * vs.y / vs.x)) * 1.14 + 0.3
 	if is_instance_valid(ship):
 		ship.rotation.y = sin(_t * 0.3) * 0.25
 		ship.position.y = ship_pos.y + sin(_t * 0.9) * 0.12
@@ -594,6 +601,7 @@ func _input(ev: InputEvent) -> void:
 			var d0 := old.distance_to(other)
 			var d1: float = ev.position.distance_to(other)
 			if d0 > 1 and d1 > 1:
+				auto_fit = false
 				dist = clampf(dist * d0 / d1, 4.0, 45.0)
 			var a0 := (old - other).angle()
 			var a1: float = (ev.position - other).angle()
@@ -605,8 +613,10 @@ func _input(ev: InputEvent) -> void:
 		if ev.pressed and _over_gui(ev.position):
 			return
 		if ev.button_index == MOUSE_BUTTON_WHEEL_UP:
+			auto_fit = false
 			dist = clampf(dist * 0.9, 4.0, 45.0)
 		elif ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			auto_fit = false
 			dist = clampf(dist * 1.1, 4.0, 45.0)
 		elif ev.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT]:
 			_drag = ev.button_index if ev.pressed else 0
@@ -619,4 +629,5 @@ func _input(ev: InputEvent) -> void:
 		else:
 			_pan(ev.relative)
 	elif ev is InputEventMagnifyGesture:
+		auto_fit = false
 		dist = clampf(dist / ev.factor, 4.0, 45.0)

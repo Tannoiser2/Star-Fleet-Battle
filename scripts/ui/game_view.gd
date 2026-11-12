@@ -25,6 +25,9 @@ var mode_btns: Array = []
 var zoom_btn: Button
 var view_mode := 0          # 0 testo, 1 SSD 2D, 2 SSD 3D
 var view_key := ""
+var info_col: VBoxContainer
+var shield_box: VBoxContainer
+var shield_uid := -1
 const LEFT_W := [440, 500, 560]
 var log_rich: RichTextLabel
 var act_panel: PanelContainer
@@ -194,6 +197,18 @@ func _build_ui() -> void:
 	head_box = VBoxContainer.new()
 	head_box.add_theme_constant_override("separation", 2)
 	lv.add_child(head_box)
+	# dati della nave su una colonna, a destra gli scudi in 3D sempre visibili
+	var ir := HBoxContainer.new()
+	ir.add_theme_constant_override("separation", 8)
+	lv.add_child(ir)
+	info_col = VBoxContainer.new()
+	info_col.add_theme_constant_override("separation", 1)
+	info_col.custom_minimum_size.x = 212
+	ir.add_child(info_col)
+	shield_box = VBoxContainer.new()
+	shield_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shield_box.custom_minimum_size = Vector2(170, 210)
+	ir.add_child(shield_box)
 	var mr := HBoxContainer.new()
 	mr.add_theme_constant_override("separation", 6)
 	lv.add_child(mr)
@@ -446,9 +461,12 @@ func _refresh_status() -> void:
 	for c in head_box.get_children():
 		c.queue_free()
 	var u: Dictionary = eng.units.get(selected, {})
+	for c in info_col.get_children():
+		c.queue_free()
 	if u.is_empty() or u.get("kind", "") != "ship":
 		head_box.add_child(UI.head("Scegli una nave", 22))
 		_clear_view()
+		_shield_view(-1)
 		return
 	var d: Dictionary = D.ship(u["id"])
 	var col: Color = D.PCOLORS[int(eng.sides[u["side"]]["col"]) % 8]
@@ -481,18 +499,28 @@ func _refresh_status() -> void:
 		s2.setup(eng, selected)
 		view_box.add_child(_legend())
 	else:
-		view_box.add_child(UI.head("Scudi", 18, UI.SKY))
-		var sv1: SubViewportContainer = SSD3D.window(eng, selected, "ship")
-		sv1.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		sv1.size_flags_stretch_ratio = 0.62
-		sv1.custom_minimum_size = Vector2(200, 150)
-		view_box.add_child(sv1)
 		view_box.add_child(UI.head("Armi e sistemi", 18, UI.TAN))
 		var sv2: SubViewportContainer = SSD3D.window(eng, selected, "card")
 		sv2.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		sv2.custom_minimum_size = Vector2(200, 250)
 		view_box.add_child(sv2)
 		view_box.add_child(_legend())
+
+
+## Scudi in 3D accanto ai dati: si ricostruiscono solo quando cambia la nave
+func _shield_view(id: int) -> void:
+	if id == shield_uid:
+		return
+	shield_uid = id
+	for c in shield_box.get_children():
+		shield_box.remove_child(c)
+		c.queue_free()
+	if id < 0:
+		return
+	var sv: SubViewportContainer = SSD3D.window(eng, id, "ship")
+	sv.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sv.custom_minimum_size = Vector2(170, 200)
+	shield_box.add_child(sv)
 
 
 func _legend() -> Control:
@@ -519,13 +547,11 @@ func _clear_view() -> void:
 
 func _info_grid(u: Dictionary, d: Dictionary) -> void:
 	if not u["alive"]:
-		head_box.add_child(UI.head("Nave " + str(u["gone"]), 20, UI.RED))
+		info_col.add_child(UI.head("Nave " + str(u["gone"]), 20, UI.RED))
+		_shield_view(-1)
 		return
-	var g := GridContainer.new()
-	g.columns = 2
-	g.add_theme_constant_override("h_separation", 10)
-	g.add_theme_constant_override("v_separation", 1)
-	head_box.add_child(g)
+	var g := info_col
+	_shield_view(selected if SSD3D.has_data(u["id"]) else -1)
 	var p: Dictionary = eng.power(u)
 	_kv(g, "Posizione", "%s prua %s" % [H.label(u["pos"]), H.DIR_LETTERS[u["face"]]])
 	_kv(g, "Velocità", "%d virata %d" % [u["speed"], eng.turn_mode_of(u)])
