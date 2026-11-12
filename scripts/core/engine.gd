@@ -406,11 +406,19 @@ func decide_all(ss: Array, reqs: Array) -> Array:
 ## Replay finale: le decisioni vengono dal registro e il ritmo è fisso e veloce, senza soste
 var replaying := false
 var replay_step := 0.05
+var paused := false
+
+
+## Nel replay il tempo scorre a ritmo costante: ogni impulso dura replay_step, senza soste
+## fra un turno e l'altro né durante il fuoco (gli effetti si sovrappongono al movimento).
+func _replay_tick() -> void:
+	await get_tree().create_timer(replay_step).timeout
+	while paused and not abort:
+		await get_tree().process_frame
 
 
 func _pace(sec: float) -> void:
 	if replaying:
-		await get_tree().create_timer(minf(sec, replay_step * (3.0 if sec >= 0.5 else 1.0))).timeout
 		return
 	if headless or not replay_queue.is_empty() or (online != null and online.catchup):
 		return
@@ -473,6 +481,10 @@ func _turn() -> void:
 	phase = "impulsi"
 	for i in range(1, 33):
 		imp = i
+		if replaying:
+			await _replay_tick()
+			if abort:
+				return
 		await _impulse()
 		if over or abort:
 			return

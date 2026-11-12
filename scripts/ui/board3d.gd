@@ -459,13 +459,6 @@ func _ship_node(u: Dictionary) -> Node3D:
 	hx.material_override = _emissive(_side_col(u["side"]), 1.6, 0.95)
 	hx.position.y = 0.03
 	root.add_child(hx)
-	var hf := MeshInstance3D.new()
-	hf.mesh = _hex_fill()
-	var fm := _emissive(_side_col(u["side"]), 0.6, 0.18)
-	fm.cull_mode = BaseMaterial3D.CULL_DISABLED
-	hf.material_override = fm
-	hf.position.y = 0.02
-	root.add_child(hf)
 	var tok := MeshInstance3D.new()
 	var qm := PlaneMesh.new()
 	qm.size = Vector2(1.2, 1.2)

@@ -1788,6 +1788,8 @@ var rp_eng: SFBEngine
 var rp_board
 var rp_lbl: Label
 var rp_speed := 1
+var rp_paused := false
+var rp_pause_btn: Button
 var rp_run := 0
 var rp_hidden: Array = []
 
@@ -1815,8 +1817,8 @@ func _start_replay() -> void:
 	bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	bar.offset_bottom = -12
-	bar.offset_left = -430
-	bar.offset_right = 430
+	bar.offset_left = -520
+	bar.offset_right = 520
 	rp_layer.add_child(bar)
 	var hb := HBoxContainer.new()
 	hb.add_theme_constant_override("separation", 10)
@@ -1829,8 +1831,16 @@ func _start_replay() -> void:
 		rp_speed = 1 if rp_speed == 4 else rp_speed * 2
 		bv.text = "VELOCITÀ X%d" % rp_speed
 		if rp_eng != null:
-			rp_eng.replay_step = 0.05 / rp_speed)
+			rp_eng.replay_step = 0.09 / rp_speed)
 	hb.add_child(bv)
+	var bp := UI.button("Pausa", 150, 46, 18, UI.SKY)
+	rp_pause_btn = bp
+	bp.pressed.connect(func():
+		rp_paused = not rp_paused
+		bp.text = "RIPRENDI" if rp_paused else "PAUSA"
+		if rp_eng != null:
+			rp_eng.paused = rp_paused)
+	hb.add_child(bp)
 	var br := UI.button("Da capo", 140, 46, 18, UI.TAN)
 	br.pressed.connect(_replay_once)
 	hb.add_child(br)
@@ -1855,7 +1865,8 @@ func _replay_once() -> void:
 	rp_eng = SFBEngine.new()
 	rp_eng.setup(cfg)
 	rp_eng.replaying = true
-	rp_eng.replay_step = 0.05 / rp_speed
+	rp_eng.replay_step = 0.09 / rp_speed
+	rp_eng.paused = rp_paused
 	rp_eng.replay_queue = eng.history.duplicate()
 	add_child(rp_eng)
 	rp_board = Board3D.new()
@@ -1872,7 +1883,6 @@ func _replay_once() -> void:
 	rp_eng.changed.connect(func():
 		if is_instance_valid(rp_board):
 			rp_board.refresh()
-			_replay_follow()
 		if is_instance_valid(rp_lbl) and rp_eng != null:
 			rp_lbl.text = "REPLAY - TURNO %d  IMPULSO %d" % [maxi(1, rp_eng.turn), rp_eng.imp])
 	await get_tree().process_frame
@@ -1902,21 +1912,3 @@ func _stop_replay() -> void:
 		if is_instance_valid(c):
 			c.visible = true
 	rp_hidden.clear()
-
-
-## Il replay inquadra da solo tutte le navi ancora in gioco
-func _replay_follow() -> void:
-	if rp_eng == null or rp_board._drag or not rp_board._touches.is_empty():
-		return
-	var ships: Array = rp_eng.live_ships()
-	if ships.is_empty():
-		return
-	var lo := Vector3(1e9, 0, 1e9)
-	var hi := Vector3(-1e9, 0, -1e9)
-	for u in ships:
-		var p := H.world(u["pos"])
-		lo = Vector3(minf(lo.x, p.x), 0, minf(lo.z, p.z))
-		hi = Vector3(maxf(hi.x, p.x), 0, maxf(hi.z, p.z))
-	rp_board.target_goal = (lo + hi) * 0.5
-	var span := maxf(hi.x - lo.x, hi.z - lo.z)
-	rp_board.dist = lerpf(rp_board.dist, clampf(span * 1.4 + 16.0, 20.0, 70.0), 0.08)
