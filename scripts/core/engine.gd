@@ -403,7 +403,15 @@ func decide_all(ss: Array, reqs: Array) -> Array:
 	return res
 
 
+## Replay finale: le decisioni vengono dal registro e il ritmo è fisso e veloce, senza soste
+var replaying := false
+var replay_step := 0.05
+
+
 func _pace(sec: float) -> void:
+	if replaying:
+		await get_tree().create_timer(minf(sec, replay_step * (3.0 if sec >= 0.5 else 1.0))).timeout
+		return
 	if headless or not replay_queue.is_empty() or (online != null and online.catchup):
 		return
 	await get_tree().create_timer(sec / maxf(0.1, anim)).timeout

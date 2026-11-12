@@ -1640,6 +1640,151 @@ func _on_end(res: Dictionary) -> void:
 	var bm := UI.primary(UI.button("Torna al menu", 300, 56, 22))
 	bm.pressed.connect(func(): main.show_menu())
 	vb.add_child(bm)
+	var brp := UI.button("Replay della battaglia", 300, 50, 20, UI.SKY)
+	brp.pressed.connect(func():
+		p.queue_free()
+		_start_replay())
+	vb.add_child(brp)
 	var bs := UI.button("Guarda la mappa", 300, 50, 20, UI.LILAC)
 	bs.pressed.connect(func(): p.queue_free())
 	vb.add_child(bs)
+
+
+# ================================================================ replay finale
+
+var rp_layer: Control
+var rp_eng: SFBEngine
+var rp_board
+var rp_lbl: Label
+var rp_speed := 1
+var rp_run := 0
+var rp_hidden: Array = []
+
+
+## Rigioca l'intera battaglia da capo, tutto di seguito e senza pause, ricominciando alla fine
+func _start_replay() -> void:
+	_close_ssd()
+	if is_instance_valid(rp_layer):
+		return
+	board.visible = false
+	board.input_locked = true
+	# a tutto schermo: si nascondono i pannelli della partita
+	rp_hidden.clear()
+	for c in get_children():
+		if c is Control and c.visible:
+			c.visible = false
+			rp_hidden.append(c)
+	rp_layer = Control.new()
+	rp_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	rp_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(rp_layer)
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", UI.frame(UI.SKY, 0.93))
+	bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	bar.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	bar.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bar.offset_bottom = -12
+	bar.offset_left = -430
+	bar.offset_right = 430
+	rp_layer.add_child(bar)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 10)
+	bar.add_child(hb)
+	rp_lbl = UI.head("Replay", 22, UI.SKY)
+	rp_lbl.custom_minimum_size.x = 330
+	hb.add_child(rp_lbl)
+	var bv := UI.button("Velocità x1", 170, 46, 18, UI.LILAC)
+	bv.pressed.connect(func():
+		rp_speed = 1 if rp_speed == 4 else rp_speed * 2
+		bv.text = "VELOCITÀ X%d" % rp_speed
+		if rp_eng != null:
+			rp_eng.replay_step = 0.05 / rp_speed)
+	hb.add_child(bv)
+	var br := UI.button("Da capo", 140, 46, 18, UI.TAN)
+	br.pressed.connect(_replay_once)
+	hb.add_child(br)
+	var bc := UI.button("Chiudi", 130, 46, 18, UI.RUST)
+	bc.pressed.connect(_stop_replay)
+	hb.add_child(bc)
+	_replay_once()
+
+
+func _replay_once() -> void:
+	rp_run += 1
+	var my := rp_run
+	if rp_eng != null:
+		rp_eng.abort = true
+		rp_eng.queue_free()
+	if is_instance_valid(rp_board):
+		rp_board.queue_free()
+	var cfg := config.duplicate(true)
+	cfg.erase("online")
+	cfg.erase("preload")
+	cfg.erase("save_code")
+	rp_eng = SFBEngine.new()
+	rp_eng.setup(cfg)
+	rp_eng.replaying = true
+	rp_eng.replay_step = 0.05 / rp_speed
+	rp_eng.replay_queue = eng.history.duplicate()
+	add_child(rp_eng)
+	rp_board = Board3D.new()
+	add_child(rp_board)
+	move_child(rp_board, 0)
+	rp_board.setup(rp_eng)
+	rp_board.yaw = board.yaw
+	rp_board.pitch = board.pitch
+	rp_board.dist = 52.0
+	rp_board.pitch = -1.0
+	rp_board.target_goal = Vector3(30.8, 0, 25.4)
+	rp_board.target = rp_board.target_goal
+	rp_eng.changed.connect(func():
+		if is_instance_valid(rp_board):
+			rp_board.refresh()
+			_replay_follow()
+		if is_instance_valid(rp_lbl) and rp_eng != null:
+			rp_lbl.text = "REPLAY - TURNO %d  IMPULSO %d" % [maxi(1, rp_eng.turn), rp_eng.imp])
+	await get_tree().process_frame
+	await rp_eng.run()
+	if my != rp_run or not is_instance_valid(rp_layer):
+		return
+	rp_lbl.text = "REPLAY - FINE, RICOMINCIO..."
+	await get_tree().create_timer(2.5).timeout
+	if my == rp_run and is_instance_valid(rp_layer):
+		_replay_once()
+
+
+func _stop_replay() -> void:
+	rp_run += 1
+	if rp_eng != null:
+		rp_eng.abort = true
+		rp_eng.queue_free()
+		rp_eng = null
+	if is_instance_valid(rp_board):
+		rp_board.queue_free()
+	if is_instance_valid(rp_layer):
+		rp_layer.queue_free()
+	board.visible = true
+	board.input_locked = false
+	board.cam.current = true
+	for c in rp_hidden:
+		if is_instance_valid(c):
+			c.visible = true
+	rp_hidden.clear()
+
+
+## Il replay inquadra da solo tutte le navi ancora in gioco
+func _replay_follow() -> void:
+	if rp_eng == null or rp_board._drag or not rp_board._touches.is_empty():
+		return
+	var ships: Array = rp_eng.live_ships()
+	if ships.is_empty():
+		return
+	var lo := Vector3(1e9, 0, 1e9)
+	var hi := Vector3(-1e9, 0, -1e9)
+	for u in ships:
+		var p := H.world(u["pos"])
+		lo = Vector3(minf(lo.x, p.x), 0, minf(lo.z, p.z))
+		hi = Vector3(maxf(hi.x, p.x), 0, maxf(hi.z, p.z))
+	rp_board.target_goal = (lo + hi) * 0.5
+	var span := maxf(hi.x - lo.x, hi.z - lo.z)
+	rp_board.dist = lerpf(rp_board.dist, clampf(span * 1.4 + 16.0, 20.0, 70.0), 0.08)
