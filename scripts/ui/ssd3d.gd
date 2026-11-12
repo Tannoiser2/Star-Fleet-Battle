@@ -34,7 +34,7 @@ var pitch := -0.82
 var dist := 19.5
 var target := Vector3(-0.2, 0.5, 1.6)
 var sys_cubes := {}      # chiave -> Array di MeshInstance3D (null = distrutto)
-var weap_cubes: Array = []
+var weap_cubes := {}      # tipo d'arma -> Array
 var sh_tiles := {}       # "i" -> Array
 var layers := {}         # i -> Array di MeshInstance3D
 var _t := 0.0
@@ -184,14 +184,12 @@ func _build_card(u: Dictionary) -> void:
 		for b in data["sys"][k]:
 			arr.append(_cube(b, SYS_COL.get(k, Color.WHITE), 0.16))
 		sys_cubes[k] = arr
-	var i := 0
-	for b in data["weap"]:
-		var col := Color("#ff5577")
-		if i < u["weapons"].size():
-			var t: String = u["weapons"][i]["t"]
-			col = Color("#ff5555") if t == "PHOT" or t == "DISR" else (Color("#ff8a3d") if D.is_phaser(t) else (Color("#55ee88") if D.is_plasma(t) else Color("#ff5577")))
-		weap_cubes.append(_cube(b, col, 0.2))
-		i += 1
+	for t in data.get("weapt", {}):
+		var col := Color("#ff5555") if t == "PHOT" or t == "DISR" else (Color("#ff8a3d") if D.is_phaser(t) else (Color("#55ee88") if D.is_plasma(t) else Color("#ff5577")))
+		var arr := []
+		for b in data["weapt"][t]:
+			arr.append(_cube(b, col, 0.2))
+		weap_cubes[t] = arr
 	for si in data["shield"]:
 		var arr2 := []
 		for b in data["shield"][si]:
@@ -322,11 +320,23 @@ func sync() -> void:
 				_kill(arr[idx], delay)
 				arr[idx] = null
 				delay += 0.1
-	for i in mini(weap_cubes.size(), u["weapons"].size()):
-		if weap_cubes[i] != null and not u["weapons"][i]["ok"]:
-			_kill(weap_cubes[i], delay)
-			weap_cubes[i] = null
-			delay += 0.1
+	# armi: per ogni tipo, caselle perse in proporzione alle armi di quel tipo distrutte
+	for t in weap_cubes:
+		var tot := 0
+		var ok := 0
+		for w in u["weapons"]:
+			if w["t"] == t:
+				tot += 1
+				if w["ok"]:
+					ok += 1
+		var arrw: Array = weap_cubes[t]
+		var lostw := _lost(arrw.size(), ok, tot)
+		for n in lostw:
+			var idw := arrw.size() - 1 - n
+			if arrw[idw] != null:
+				_kill(arrw[idw], delay)
+				arrw[idw] = null
+				delay += 0.1
 	for si in sh_tiles:
 		var i2 := int(si)
 		var arr2: Array = sh_tiles[si]

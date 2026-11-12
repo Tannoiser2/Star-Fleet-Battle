@@ -1253,15 +1253,25 @@ func _open_tmenu(tid: int) -> void:
 		return
 	tmenu_tid = tid
 	var t: Dictionary = eng.units[tid]
-	tmenu = UI.panel(UI.RED, 0.95)
-	tmenu.custom_minimum_size = Vector2(440, 0)
+	tmenu = PanelContainer.new()
+	var fr := UI.frame(UI.RED, 0.94)
+	fr.border_width_left = 8
+	fr.border_width_top = 3
+	fr.corner_radius_top_left = 14
+	fr.corner_radius_bottom_left = 14
+	fr.content_margin_left = 14
+	fr.content_margin_right = 8
+	fr.content_margin_top = 6
+	fr.content_margin_bottom = 6
+	tmenu.add_theme_stylebox_override("panel", fr)
+	tmenu.custom_minimum_size = Vector2(300, 0)
 	add_child(tmenu)
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 6)
+	vb.add_theme_constant_override("separation", 3)
 	tmenu.add_child(vb)
 	var nm: String = str(D.ship(t["id"])["n"]) if t["kind"] == "ship" else str(t["name"])
-	var title := UI.head(nm, 22, UI.PEACH)
-	title.custom_minimum_size.x = 380
+	var title := UI.head(nm, 18, UI.PEACH)
+	title.custom_minimum_size.x = 270
 	title.clip_text = true
 	vb.add_child(title)
 	if t["kind"] == "ship":
@@ -1269,7 +1279,7 @@ func _open_tmenu(tid: int) -> void:
 		var shooter: Dictionary = eng.units[some[0]]
 		var shi: int = eng._shield_hit(t, shooter["pos"])
 		var f := float(t["sh"][shi]) / maxf(1.0, float(t["sh_max"][shi]))
-		vb.add_child(UI.label("Colpi sullo scudo #%d: %d su %d%s" % [shi + 1, t["sh"][shi], t["sh_max"][shi], " (debole!)" if f <= 0.2 else ""], 16, board.shield_color(f) if f <= 0.5 else UI.SKY))
+		vb.add_child(UI.label("Scudo #%d: %d/%d%s" % [shi + 1, t["sh"][shi], t["sh_max"][shi], " debole!" if f <= 0.2 else ""], 14, board.shield_color(f) if f <= 0.5 else UI.SKY))
 	var list: Array = tg[tid]
 	list.sort_custom(func(a, b): return _shot_info(eng.units[a[0]], a[1], tid)[1] > _shot_info(eng.units[b[0]], b[1], tid)[1])
 	var more := {}
@@ -1284,8 +1294,8 @@ func _open_tmenu(tid: int) -> void:
 		var txt := "%s %s" % [D.WSHORT[w["t"]], w["arc"]]
 		if more.size() > 1:
 			txt += " (%s)" % str(D.ship(u["id"])["n"]).substr(0, 10)
-		txt += "  %d%%  ~%.1f" % [int(round(info[0] * 100)), info[1]]
-		var b := UI.button(txt, 400, 40, 17, UI.GREEN if on else (UI.DIM if other else UI.LILAC))
+		txt += "  %d%%  %.1f danni" % [int(round(info[0] * 100)), info[1]]
+		var b := _mini_btn(txt, 270, UI.GREEN if on else (UI.DIM if other else UI.LILAC))
 		b.tooltip_text = str(info[2]) + ("  (già puntata su un altro bersaglio)" if other else "")
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(func():
@@ -1297,9 +1307,9 @@ func _open_tmenu(tid: int) -> void:
 			_open_tmenu(tid))
 		vb.add_child(b)
 	var r2 := HBoxContainer.new()
-	r2.add_theme_constant_override("separation", 8)
+	r2.add_theme_constant_override("separation", 4)
 	vb.add_child(r2)
-	var ba := UI.button("Tutte", 120, 40, 18, UI.TAN)
+	var ba := _mini_btn("Tutte", 84, UI.TAN)
 	ba.pressed.connect(func():
 		for e2 in list:
 			if _shot_info(eng.units[e2[0]], e2[1], tid)[0] > 0.0:
@@ -1307,7 +1317,7 @@ func _open_tmenu(tid: int) -> void:
 		_fire_bar_update()
 		_open_tmenu(tid))
 	r2.add_child(ba)
-	var bn := UI.button("Nessuna", 130, 40, 18, UI.LILAC)
+	var bn := _mini_btn("Nessuna", 92, UI.LILAC)
 	bn.pressed.connect(func():
 		for e3 in list:
 			if fire_sel.get("%d:%d" % [e3[0], e3[1]], -1) == tid:
@@ -1315,10 +1325,26 @@ func _open_tmenu(tid: int) -> void:
 		_fire_bar_update()
 		_open_tmenu(tid))
 	r2.add_child(bn)
-	var bc := UI.button("Chiudi", 120, 40, 18, UI.RUST)
+	var bc := _mini_btn("Chiudi", 84, UI.RUST)
 	bc.pressed.connect(_close_tmenu)
 	r2.add_child(bc)
 	_place_tmenu()
+
+
+## Pulsantino del mini menu delle armi
+func _mini_btn(t: String, w: int, col: Color) -> Button:
+	var b := Button.new()
+	b.text = t.to_upper()
+	b.custom_minimum_size = Vector2(w, 28)
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_size_override("font_size", 15)
+	for k in ["normal", "hover", "pressed"]:
+		var c: Color = col if k == "normal" else (col.lightened(0.3) if k == "hover" else UI.TAN)
+		var st := UI.box(c, c, 0, 14, 2)
+		st.content_margin_left = 12
+		st.content_margin_right = 12
+		b.add_theme_stylebox_override(k, st)
+	return b
 
 
 ## Il mini menu segue il bersaglio sullo schermo, restando dentro la vista
@@ -1328,9 +1354,9 @@ func _place_tmenu() -> void:
 	var sp: Vector2 = board.unit_screen(tmenu_tid)
 	var vs := get_viewport_rect().size
 	var sz := tmenu.get_combined_minimum_size()
-	var pos := sp + Vector2(70, -sz.y * 0.5)
+	var pos := sp + Vector2(50, -sz.y * 0.5)
 	if pos.x + sz.x > vs.x - 410:
-		pos.x = sp.x - 70 - sz.x
+		pos.x = sp.x - 50 - sz.x
 	pos.x = clampf(pos.x, 445, maxf(445, vs.x - 410 - sz.x))
 	pos.y = clampf(pos.y, 74, vs.y - sz.y - 140)
 	tmenu.position = pos
